@@ -9,7 +9,7 @@ import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType } from '../types';
 import {
   Calendar, Users, BookOpen, DollarSign, LogOut, Clock, CheckCircle, XCircle,
-  Plus, Music, ChevronLeft, ChevronRight, AlertCircle, Loader2, Building2, Gift
+  Plus, Music, ChevronLeft, ChevronRight, AlertCircle, Loader2, Building2, Gift, Trash2
 } from 'lucide-react';
 
 type Tab = 'schedule' | 'students' | 'lessons' | 'salary';
