@@ -14,7 +14,22 @@ const firebaseConfig = {
   measurementId: "G-KRRL1Z2LTS"
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+// 安全初始化：防止配置错误导致整个应用崩溃
+let app: any = null;
+let auth: any = null;
+let db: any = null;
+export let firebaseReady = false;
+
+try {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  firebaseReady = true;
+  console.log('✅ Firebase 初始化成功');
+} catch (e) {
+  console.warn('⚠️ Firebase 初始化失败，应用将以离线模式运行', e);
+  firebaseReady = false;
+}
+
+export { auth, db };
 export const APP_ID = 'valley-school';
