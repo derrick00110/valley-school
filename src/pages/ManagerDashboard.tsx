@@ -436,6 +436,34 @@ export default function ManagerDashboard() {
               </div>
             </div>
 
+            {/* 危险操作 */}
+            {storeFilter !== 'all' && (
+              <div className="bg-red-50 rounded-2xl p-4 border border-red-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-red-700">⚠️ 危险操作区</h4>
+                    <p className="text-xs text-red-500 mt-0.5">清空当前门店下所有报名记录（营收归零）</p>
+                  </div>
+                  <button onClick={() => {
+                    const s = STORES.find(x => x.id === storeFilter);
+                    if (!s || !confirm(`确定清空 ${s.name} 的所有报名数据？此操作不可撤销！`)) return;
+                    const toDelete = enrollments.filter(e => e.storeId === s.id);
+                    (async () => {
+                      for (const e of toDelete) {
+                        try {
+                          const colRef = collection(db, `enrollments_${s.id}`);
+                          await deleteDoc(doc(colRef, e.id));
+                        } catch {}
+                      }
+                      setToastMsg(`已清空 ${s.name} 的 ${toDelete.length} 条报名记录`);
+                    })();
+                  }} className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-medium hover:bg-red-700">
+                    清空报名
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* 提成规则说明 */}
             <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
               <h4 className="text-xs font-bold text-blue-700 mb-2">📋 当前提成规则（广州车陂店）</h4>
