@@ -32,6 +32,7 @@ export default function ManagerDashboard() {
   const [showAddEnrollment, setShowAddEnrollment] = useState(false);
   const [showSalaryDetail, setShowSalaryDetail] = useState<string | null>(null);
   const [deleteConfirmStudent, setDeleteConfirmStudent] = useState<string | null>(null);
+  const [deleteConfirmTeacher, setDeleteConfirmTeacher] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
   useEffect(() => {
     if (toastMsg) {
@@ -264,6 +265,15 @@ export default function ManagerDashboard() {
     setEnrollmentForm({ studentId: '', studentName: '', course: '', courseType: 'fixed', price: '', teacherId: '', storeId: 'dongguan', formalLessons: '', giftedLessons: '0', isUnlimited: 'false' });
   };
 
+  // ---- 删除老师 ----
+  const handleDeleteTeacher = async (teacherId: string) => {
+    try {
+      await deleteDoc(doc(db, 'teachers', teacherId));
+      setToastMsg('老师已删除');
+      setDeleteConfirmTeacher(null);
+    } catch (e: any) { setToastMsg('删除失败：' + e.message); }
+  };
+
   // ---- 删除学生 ----
   const handleDeleteStudent = async (studentId: string) => {
     const stu = students.find(s => s.id === studentId);
@@ -360,10 +370,14 @@ export default function ManagerDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 py-4">
 
-        {/* Toast */}
+        {/* Toast - 用 inline style 确保显示 */}
         {toastMsg && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[80] bg-green-600 text-white px-5 py-2.5 rounded-xl shadow-lg text-sm font-medium">
-            {toastMsg}
+          <div style={{
+            position: 'fixed', top: '12px', left: '50%', transform: 'translateX(-50%)',
+            zIndex: 9999, background: '#16a34a', color: '#fff', padding: '10px 20px',
+            borderRadius: '12px', fontSize: '14px', fontWeight: 500, boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          }}>
+            ✅ {toastMsg}
           </div>
         )}
         {/* ========== 总览 ========== */}
@@ -444,8 +458,14 @@ export default function ManagerDashboard() {
                       {getStore(t.storeId).name}
                     </span>
                   </div>
-                  <div className="text-xs text-slate-400">
-                    {students.filter(s => s.teacherId === t.id).length} 个学生
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs text-slate-400">
+                      {students.filter(s => s.teacherId === t.id).length} 个学生
+                    </div>
+                    <button onClick={() => setDeleteConfirmTeacher(t.id)}
+                      className="text-xs bg-red-50 text-red-500 px-2 py-1 rounded hover:bg-red-100">
+                      <Trash2 size={10} className="inline mr-0.5" />删除
+                    </button>
                   </div>
                 </div>
               ))}
@@ -798,6 +818,25 @@ export default function ManagerDashboard() {
           </div>
         </div>
       )}
+      {/* ========== 删除老师确认弹窗 ========== */}
+      {deleteConfirmTeacher && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+              <Trash2 className="h-6 w-6 text-red-600" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">确认删除老师？</h3>
+            <p className="text-sm text-slate-500 mb-6">
+              将删除「{teachers.find(t => t.id === deleteConfirmTeacher)?.name}」老师账号
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirmTeacher(null)} className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm">取消</button>
+              <button onClick={() => handleDeleteTeacher(deleteConfirmTeacher!)} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm">确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ========== 删除学生确认弹窗 ========== */}
       {deleteConfirmStudent && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
