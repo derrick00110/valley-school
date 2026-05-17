@@ -50,7 +50,7 @@ export default function ManagerDashboard() {
 
   // 监听所有数据（整批替换防竞态）
   useEffect(() => {
-    const col = (name: string, store: string) => collection(db, APP_ID, 'data', `${name}_${store}`);
+    const col = (name: string, store: string) => collection(db, `${name}_${store}`);
 
     // 老师不分店 — 整批替换
     const unsubTeachers = onSnapshot(collection(db, 'teachers'), snap => {
@@ -127,12 +127,12 @@ export default function ManagerDashboard() {
     const s = STORES.find(x => x.id === lesson.storeId);
     if (!s) { setToastMsg('门店信息错误'); return; }
     try {
-      const colRef = collection(db, APP_ID, 'data', `lessons_${s.id}`);
+      const colRef = collection(db, `lessons_${s.id}`);
       await updateDoc(doc(colRef, lessonId), { status: 'approved', approvedBy: 'manager', approvedAt: Date.now() } as any);
       // 同时扣学生课时
       const stu = students.find(st => st.id === lesson.studentId);
       if (stu) {
-        const stuCol = collection(db, APP_ID, 'data', `students_${s.id}`);
+        const stuCol = collection(db, `students_${s.id}`);
         if (lesson.type === 'formal') {
           await updateDoc(doc(stuCol, lesson.studentId), { formalLessons: Math.max(0, stu.formalLessons - 1) } as any);
         } else {
@@ -149,7 +149,7 @@ export default function ManagerDashboard() {
     const s = STORES.find(x => x.id === lesson.storeId);
     if (!s) { setToastMsg('门店信息错误'); return; }
     try {
-      const colRef = collection(db, APP_ID, 'data', `lessons_${s.id}`);
+      const colRef = collection(db, `lessons_${s.id}`);
       await updateDoc(doc(colRef, lessonId), { status: 'rejected', approvedBy: 'manager', approvedAt: Date.now() } as any);
       setToastMsg(`已拒绝 ${lesson.studentName} 的消课记录`);
     } catch (e: any) { setToastMsg('拒绝失败：' + e.message); }
@@ -179,7 +179,7 @@ export default function ManagerDashboard() {
       formalLessons: 0, giftedLessons: 0, totalFormal: 0,
       note: studentForm.note, createdAt: Date.now(),
     };
-    const colRef = collection(db, APP_ID, 'data', `students_${stu.storeId}`);
+    const colRef = collection(db, `students_${stu.storeId}`);
     await setDoc(doc(colRef, stu.id), stu);
     setShowAddStudent(false);
     setStudentForm({ name: '', phone: '', teacherId: '', storeId: 'dongguan', note: '' });
@@ -222,13 +222,13 @@ export default function ManagerDashboard() {
       createdAt: Date.now(),
     };
 
-    const colRef = collection(db, APP_ID, 'data', `enrollments_${enrollment.storeId}`);
+    const colRef = collection(db, `enrollments_${enrollment.storeId}`);
     await setDoc(doc(colRef, enrollment.id), enrollment);
     setAlertMsg(`${enrollment.studentName} 报名成功！锁定档位${enrollment.commissionRate*100}%`);
 
     // 同时更新学生课时
     const stored = storeFilter === 'all' ? enrollmentForm.storeId : storeFilter;
-    const stuCol = collection(db, APP_ID, 'data', `students_${enrollment.storeId}`);
+    const stuCol = collection(db, `students_${enrollment.storeId}`);
     const existingStu = students.find(s => s.id === enrollmentForm.studentId);
     if (existingStu) {
       await updateDoc(doc(stuCol, enrollmentForm.studentId), {
@@ -251,7 +251,7 @@ export default function ManagerDashboard() {
       for (const up of upgrades) {
         for (const s of STORES) {
           try {
-            const colRef = collection(db, APP_ID, 'data', `lessons_${s.id}`);
+            const colRef = collection(db, `lessons_${s.id}`);
             await updateDoc(doc(colRef, up.lessonId), { commissionAmount: up.newAmount, upgradedFrom: up.oldAmount, upgradedAt: Date.now() } as any);
           } catch {}
         }
@@ -279,7 +279,7 @@ export default function ManagerDashboard() {
     const stu = students.find(s => s.id === studentId);
     if (!stu) return;
     try {
-      const stuCol = collection(db, APP_ID, 'data', `students_${stu.storeId}`);
+      const stuCol = collection(db, `students_${stu.storeId}`);
       await deleteDoc(doc(stuCol, studentId));
       setDeleteConfirmStudent(null);
     } catch {}
@@ -288,7 +288,7 @@ export default function ManagerDashboard() {
   // ---- 无限课时过半审核 ----
   const handleApproveHalf = async (enrollmentId: string) => {
     for (const s of STORES) {
-      const colRef = collection(db, APP_ID, 'data', `enrollments_${s.id}`);
+      const colRef = collection(db, `enrollments_${s.id}`);
       try { await updateDoc(doc(colRef, enrollmentId), { unlimitedHalfApproved: true } as any); } catch {}
     }
   };
