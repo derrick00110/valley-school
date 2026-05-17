@@ -584,10 +584,10 @@ export default function ManagerDashboard() {
         {/* ========== 排课总览 ========== */}
         {tab === 'schedule' && (
           <div>
-            <h2 className="font-bold text-sm mb-4">今日排课总览</h2>
+            <h2 className="font-bold text-sm mb-4">排课总览（最近5条）</h2>
+            {schedules.length === 0 && <p className="text-xs text-slate-400 py-8 text-center">暂无排课数据</p>}
             <div className="space-y-2">
-              {schedules.filter(s => s.date === formatDate(new Date()) && (storeFilter === 'all' || s.storeId === storeFilter))
-                .sort((a, b) => a.startTime.localeCompare(b.startTime)).map(s => (
+              {schedules.slice(0, 5).sort((a, b) => a.startTime.localeCompare(b.startTime)).map(s => (
                 <div key={s.id} className={`bg-white rounded-xl p-3 border shadow-sm ${s.checkedIn ? 'border-green-200' : 'border-slate-200'}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
