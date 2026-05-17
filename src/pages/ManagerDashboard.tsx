@@ -109,6 +109,22 @@ export default function ManagerDashboard() {
           setLessons(Array.from(allLessons.values()));
         } catch(e) { console.warn('lessons listener error', e); }
       }, e => console.warn('lessons listener failed', e)));
+
+      unsubs.push(onSnapshot(col('schedules', s.id), snap => {
+        try {
+          snap.docChanges().forEach(change => {
+            const d = change.doc;
+            if (change.type === 'removed') {
+              // schedule state is replaced entirely below
+            }
+          });
+          const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ScheduleAppointment));
+          setSchedules(prev => {
+            const filtered = prev.filter(x => x.storeId !== s.id);
+            return [...filtered, ...list.map(x => ({ ...x, storeId: s.id }))];
+          });
+        } catch(e) { console.warn('schedules listener error', e); }
+      }, e => console.warn('schedules listener failed', e)));
     });
 
     return () => unsubs.forEach(u => u());
