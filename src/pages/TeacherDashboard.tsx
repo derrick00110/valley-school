@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, APP_ID } from '../firebase';
-import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { STORES } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, formatMoney, getTierByRevenue, getCurrentPeriodInfo } from '../utils/commission';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
@@ -374,6 +374,16 @@ export default function TeacherDashboard() {
                             签到上课
                           </button>
                         )}
+                        <button onClick={async () => {
+                          if (!confirm('确定删除此排课？')) return;
+                          try {
+                            const colRef = collection(db, `schedules_${storeId}`);
+                            await deleteDoc(doc(colRef, s.id));
+                            setAlertMsg('排课已删除');
+                          } catch {}
+                        }} className="text-xs bg-red-50 text-red-500 px-2 py-1 rounded hover:bg-red-100 transition-colors">
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -406,8 +416,13 @@ export default function TeacherDashboard() {
                       <input type="time" className="px-3 py-2 bg-slate-50 border rounded-lg text-sm" value={scheduleForm.endTime}
                         onChange={e => setScheduleForm({ ...scheduleForm, endTime: e.target.value })} />
                     </div>
-                    <input className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="教室"
-                      value={scheduleForm.room} onChange={e => setScheduleForm({ ...scheduleForm, room: e.target.value })} />
+                    <select className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm"
+                      value={scheduleForm.room} onChange={e => setScheduleForm({ ...scheduleForm, room: e.target.value })}>
+                      <option value="">选择教室</option>
+                      <option value="主声乐教室">🎤 主声乐教室</option>
+                      <option value="副声乐教室">🎤 副声乐教室</option>
+                      <option value="架子鼓教室">🥁 架子鼓教室</option>
+                    </select>
                     <input className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="备注（可选）"
                       value={scheduleForm.note} onChange={e => setScheduleForm({ ...scheduleForm, note: e.target.value })} />
                     <div className="flex gap-2 pt-2">
