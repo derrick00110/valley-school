@@ -3,8 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, addDoc, updateDoc, doc, setDoc } from 'firebase/firestore';
-import { STORES, getCurrentPeriod, formatPeriodLabel, getCommissionTier } from '../config';
-import { calcLessonFee, calcUnlimitedHalfCommission, formatMoney } from '../utils/commission';
+import { STORES } from '../config';
+import { calcLessonFee, calcUnlimitedHalfCommission, formatMoney, getTierByRevenue, getCurrentPeriodInfo } from '../utils/commission';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType } from '../types';
 import {
@@ -199,7 +199,7 @@ export default function TeacherDashboard() {
   };
 
   // 计算预估工资
-  const period = getCurrentPeriod();
+  const period = getCurrentPeriodInfo();
   const periodLessons = lessons.filter(l =>
     l.status === 'approved' && l.teacherId === teacherId &&
     l.date >= period.start && l.date <= period.end
@@ -208,7 +208,7 @@ export default function TeacherDashboard() {
     e.teacherId === teacherId && e.enrollmentDate >= period.start && e.enrollmentDate <= period.end
   );
   const periodRevenue = periodEnrollments.reduce((s, e) => s + e.price, 0);
-  const tier = getCommissionTier(periodRevenue);
+  const tier = getTierByRevenue(periodRevenue);
   const totalLessonCommission = periodLessons.reduce((s, l) => s + l.commissionAmount, 0);
   const estimatedCommission = totalLessonCommission;
   const estimatedSalary = store.baseSalary + estimatedCommission;
