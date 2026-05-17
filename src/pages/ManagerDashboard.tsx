@@ -597,9 +597,9 @@ export default function ManagerDashboard() {
                         <span className="text-xs text-slate-400">{s.course}</span>
                       </div>
                       <div className="flex items-center gap-3 text-xs text-slate-500">
-                        <span>👤 {teachers.find(t => t.id === s.teacherId)?.name || '未知老师'}</span>
-                        <span>📅 {s.date}</span>
-                        {s.room && <span>🏫 {s.room}</span>}
+                        <span>👤 {(teachers.find(t => t.id === s.teacherId)?.name) || s.teacherName || '未知老师'}</span>
+                        <span>📅 {s.date || '未设置日期'}</span>
+                        <span>🏫 {s.room || '未指定教室'}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
                           {getStore(s.storeId).shortName}
                         </span>
