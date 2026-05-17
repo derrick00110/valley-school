@@ -162,6 +162,8 @@ export default function ManagerDashboard() {
     try {
       const t: Teacher = { id: shortId(), name: teacherForm.name.trim(), storeId: teacherForm.storeId as any, role: 'teacher' };
       await setDoc(doc(db, 'teachers', t.id), t);
+      // 立即本地追加，不等 Firestore 推送
+      setTeachers(prev => [...prev, t]);
       setToastMsg(`已添加老师：${t.name}`);
       setShowAddTeacher(false);
       setTeacherForm({ name: '', storeId: 'dongguan' });
@@ -181,6 +183,7 @@ export default function ManagerDashboard() {
     };
     const colRef = collection(db, `students_${stu.storeId}`);
     await setDoc(doc(colRef, stu.id), stu);
+    setStudents(prev => [...prev, stu]);
     setToastMsg(`已添加学生：${stu.name}`);
     setShowAddStudent(false);
     setStudentForm({ name: '', phone: '', teacherId: '', storeId: 'dongguan', note: '' });
@@ -237,6 +240,13 @@ export default function ManagerDashboard() {
         giftedLessons: existingStu.giftedLessons + giftedLessons,
         totalFormal: existingStu.totalFormal + formalLessons,
       } as any);
+      // 本地即时更新学生课时
+      setStudents(prev => prev.map(s => s.id === existingStu.id ? {
+        ...s,
+        formalLessons: s.formalLessons + formalLessons,
+        giftedLessons: s.giftedLessons + giftedLessons,
+        totalFormal: s.totalFormal + formalLessons,
+      } : s));
     }
 
     // 检查是否需要升级该老师该周期的消课记录（补差价）
