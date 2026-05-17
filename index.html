@@ -4,10 +4,39 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>山谷音乐学校管理系统</title>
+    <style>
+      /* 基础样式（不依赖Tailwind的兜底） */
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }
+      .loading-screen {
+        min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        flex-direction: column; gap: 16px;
+      }
+      .loading-spinner {
+        width: 36px; height: 36px; border: 3px solid #e2e8f0;
+        border-top-color: #6366f1; border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Tailwind 加载失败兜底提示
+      window.tailwindReady = false;
+    </script>
+    <script>
+      tailwind.config = { important: true };
+      window.tailwindReady = true;
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="loading-screen" style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">
+        <div class="loading-spinner" style="width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+        <p style="color:#64748b;font-size:14px">山谷音乐学校管理系统</p>
+        <p style="color:#94a3b8;font-size:12px">正在加载...</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
