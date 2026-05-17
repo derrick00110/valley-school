@@ -37,6 +37,15 @@ export default function TeacherDashboard() {
   // Lesson state
   const [showDeduct, setShowDeduct] = useState<{ studentId: string; enrollmentId: string; studentName: string; course: string; type: LessonType } | null>(null);
 
+  // Alert
+  const [alertMsg, setAlertMsg] = useState('');
+  useEffect(() => {
+    if (alertMsg) {
+      const t = setTimeout(() => setAlertMsg(''), 2500);
+      return () => clearTimeout(t);
+    }
+  }, [alertMsg]);
+
   // Student creation
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [studentForm, setStudentForm] = useState({ name: '', phone: '', note: '' });
@@ -126,7 +135,8 @@ export default function TeacherDashboard() {
     };
 
     const colRef = collection(db, APP_ID, 'data', `lessons_${storeId}`);
-    await addDoc(colRef, lessonData);
+    await setDoc(doc(colRef, lessonData.id), lessonData);
+    setAlertMsg(`已提交消课记录，待店长审核`);
     setShowDeduct(null);
   };
 
@@ -149,7 +159,8 @@ export default function TeacherDashboard() {
       createdAt: Date.now(),
     };
     const colRef = collection(db, APP_ID, 'data', `schedules_${storeId}`);
-    await addDoc(colRef, sched);
+    await setDoc(doc(colRef, sched.id), sched);
+    setAlertMsg('排课已添加');
     setScheduleForm({ studentId: '', studentName: '', course: '', startTime: '10:00', endTime: '11:00', room: '', note: '' });
     setShowAddSchedule(false);
   };
@@ -182,7 +193,8 @@ export default function TeacherDashboard() {
         createdAt: Date.now(),
       };
       const lessonCol = collection(db, APP_ID, 'data', `lessons_${storeId}`);
-      await addDoc(lessonCol, lessonData);
+      await setDoc(doc(lessonCol, lessonData.id), lessonData);
+      setAlertMsg(`已签到并创建消课记录`);
     }
   };
 
@@ -519,6 +531,12 @@ export default function TeacherDashboard() {
         )}
       </main>
 
+      {/* 操作提示 Toast */}
+      {alertMsg && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[80] bg-green-600 text-white px-5 py-2.5 rounded-xl shadow-lg text-sm font-medium animate-bounce-in">
+          {alertMsg}
+        </div>
+      )}
       {/* 消课确认弹窗 */}
       {showDeduct && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
