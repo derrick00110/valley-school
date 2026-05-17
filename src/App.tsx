@@ -1,6 +1,7 @@
 // ===================== 主应用 =====================
 import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
 import TeacherDashboard from './pages/TeacherDashboard';
 import ManagerDashboard from './pages/ManagerDashboard';
@@ -32,9 +33,9 @@ function AppContent() {
     );
   }
 
-  if (!user) return <LoginPage />;
-  if (user.isManager) return <ManagerDashboard />;
-  return <TeacherDashboard />;
+  if (!user) return <ErrorBoundary><LoginPage /></ErrorBoundary>;
+  if (user.isManager) return <ErrorBoundary><ManagerDashboard /></ErrorBoundary>;
+  return <ErrorBoundary><TeacherDashboard /></ErrorBoundary>;
 }
 
 export default function App() {
