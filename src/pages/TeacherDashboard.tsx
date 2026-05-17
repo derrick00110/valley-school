@@ -59,8 +59,57 @@ export default function TeacherDashboard() {
       note: studentForm.note, createdAt: Date.now(),
     };
     await setDoc(doc(colRef, stu.id), stu);
+    setAlertMsg(`已添加学生：${stu.name}`);
     setShowAddStudent(false);
     setStudentForm({ name: '', phone: '', note: '' });
+  };
+
+  // Enrollment creation (teacher side)
+  const [showAddEnrollment, setShowAddEnrollment] = useState(false);
+  const [enrollForm, setEnrollForm] = useState({ studentId: '', studentName: '', course: '', price: '', formalLessons: '1', giftedLessons: '0', isUnlimited: false });
+
+  const handleAddEnrollment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const price = Number(enrollForm.price);
+    const formalLessons = Number(enrollForm.formalLessons);
+    const giftedLessons = Number(enrollForm.giftedLessons);
+    const isUnlimited = enrollForm.isUnlimited;
+
+    // 计算老师周期营业额→锁定档位
+    const periodEnroll = enrollments.filter(en =>
+      en.teacherId === teacherId && en.enrollmentDate >= period.start && en.enrollmentDate <= period.end
+    );
+    const totalRev = periodEnroll.reduce((s, e) => s + e.price, 0) + price;
+    const tier = getTierByRevenue(totalRev);
+
+    const enrollment: Enrollment = {
+      id: shortId(), studentId: enrollForm.studentId, studentName: enrollForm.studentName,
+      course: enrollForm.course, courseType: isUnlimited ? 'unlimited' : 'fixed',
+      price, teacherId, storeId,
+      enrollmentDate: formatDate(new Date()),
+      commissionPeriod: period.period,
+      commissionRate: tier.rate,
+      formalLessons, giftedLessons,
+      lessonsPerSession: formalLessons > 0 ? (price * tier.rate) / formalLessons : 0,
+      isUnlimited, unlimitedHalfApproved: false,
+      status: 'active', createdAt: Date.now(),
+    };
+
+    const colRef = collection(db, `enrollments_${storeId}`);
+    await setDoc(doc(colRef, enrollment.id), enrollment);
+
+    // 更新学生课时
+    const stuCol = collection(db, `students_${storeId}`);
+    const existingStu = students.find(s => s.id === enrollForm.studentId);
+    if (existingStu) {
+      await updateDoc(doc(stuCol, enrollForm.studentId), {
+        formalLessons: existingStu.formalLessons + formalLessons,
+        giftedLessons: existingStu.giftedLessons + giftedLessons,
+      } as any);
+    }
+    setAlertMsg(`${enrollForm.studentName} 报名成功！锁定${tier.label}`);
+    setShowAddEnrollment(false);
+    setEnrollForm({ studentId: '', studentName: '', course: '', price: '', formalLessons: '1', giftedLessons: '0', isUnlimited: false });
   };
 
   // 监听数据
@@ -438,6 +487,12 @@ export default function TeacherDashboard() {
                             )}
                           </React.Fragment>
                         ))}
+                        <button onClick={() => {
+                          setEnrollForm({ ...enrollForm, studentId: stu.id, studentName: stu.name });
+                          setShowAddEnrollment(true);
+                        }} className="text-xs bg-purple-50 text-purple-600 px-2 py-1 rounded hover:bg-purple-100">
+                          <Plus size={10} className="inline mr-0.5" />报名
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -569,6 +624,59 @@ export default function TeacherDashboard() {
           </div>
         </div>
       )}
+      {/* 报名弹窗 */}
+      {showAddEnrollment && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800">新建报名</h3>
+              <button onClick={() => setShowAddEnrollment(false)} className="text-slate-400">✕</button>
+            </div>
+            <form onSubmit={handleAddEnrollment} className="space-y-3">
+              <div className="text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg">
+                学生：{enrollForm.studentName} · 老师：{teacherName}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input className="px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="课程名称" required
+                  value={enrollForm.course} onChange={e => setEnrollForm({ ...enrollForm, course: e.target.value })} />
+                <input type="number" className="px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="学费实收" required
+                  value={enrollForm.price} onChange={e => setEnrollForm({ ...enrollForm, price: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="number" className="px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="正式课时" required
+                  value={enrollForm.formalLessons} onChange={e => setEnrollForm({ ...enrollForm, formalLessons: e.target.value })} />
+                <input type="number" className="px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="赠送课时"
+                  value={enrollForm.giftedLessons} onChange={e => setEnrollForm({ ...enrollForm, giftedLessons: e.target.value })} />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input type="checkbox" checked={enrollForm.isUnlimited}
+                  onChange={e => setEnrollForm({ ...enrollForm, isUnlimited: e.target.checked })} />
+                无限课时（钢琴等）
+              </label>
+              {enrollForm.price && Number(enrollForm.price) > 0 && (
+                <div className="bg-indigo-50 rounded-xl p-3 text-xs text-indigo-700">
+                  当前周期营业额+本次 → 提成档位 {(() => {
+                    const rev = enrollments.filter(en => en.teacherId === teacherId && en.enrollmentDate >= period.start && en.enrollmentDate <= period.end).reduce((s, e) => s + e.price, 0) + Number(enrollForm.price);
+                    return getTierByRevenue(rev).label;
+                  })()}
+                  {enrollForm.formalLessons && Number(enrollForm.formalLessons) > 0 && (() => {
+                    const p = Number(enrollForm.price), fl = Number(enrollForm.formalLessons);
+                    const rate = getTierByRevenue(
+                      enrollments.filter(en => en.teacherId === teacherId && en.enrollmentDate >= period.start && en.enrollmentDate <= period.end).reduce((s, e) => s + e.price, 0) + p
+                    ).rate;
+                    return <> · 每节课时费 {formatMoney((p * rate) / fl)}</>;
+                  })()}
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowAddEnrollment(false)} className="flex-1 py-2 bg-slate-100 rounded-lg text-sm">取消</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm">确认报名</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* 添加学生弹窗 */}
       {showAddStudent && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
