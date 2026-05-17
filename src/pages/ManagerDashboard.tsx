@@ -282,6 +282,15 @@ export default function ManagerDashboard() {
     try {
       const stuCol = collection(db, `students_${stu.storeId}`);
       await deleteDoc(doc(stuCol, studentId));
+      // 同时删除该学生的所有报名记录
+      const stuEnrollments = enrollments.filter(e => e.studentId === studentId);
+      for (const e of stuEnrollments) {
+        try {
+          const enrollCol = collection(db, `enrollments_${stu.storeId}`);
+          await deleteDoc(doc(enrollCol, e.id));
+        } catch {}
+      }
+      setToastMsg(`已删除 ${stu.name} 及其 ${stuEnrollments.length} 条报名记录`);
       setDeleteConfirmStudent(null);
     } catch {}
   };
