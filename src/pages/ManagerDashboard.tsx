@@ -32,6 +32,13 @@ export default function ManagerDashboard() {
   const [showAddEnrollment, setShowAddEnrollment] = useState(false);
   const [showSalaryDetail, setShowSalaryDetail] = useState<string | null>(null);
   const [deleteConfirmStudent, setDeleteConfirmStudent] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState('');
+  useEffect(() => {
+    if (toastMsg) {
+      const t = setTimeout(() => setToastMsg(''), 2500);
+      return () => clearTimeout(t);
+    }
+  }, [toastMsg]);
   const [teacherForm, setTeacherForm] = useState({ name: '', storeId: 'dongguan' as string });
   const [studentForm, setStudentForm] = useState({ name: '', phone: '', teacherId: '', storeId: 'dongguan' as string, note: '' });
   const [enrollmentForm, setEnrollmentForm] = useState({ studentId: '', studentName: '', course: '', courseType: 'fixed' as string, price: '', teacherId: '', storeId: 'dongguan' as string, formalLessons: '', giftedLessons: '0', isUnlimited: 'false' as string });
@@ -100,36 +107,37 @@ export default function ManagerDashboard() {
 
   // ---- 店长操作：审核消课 ----
   const handleApproveLesson = async (lessonId: string) => {
-    for (const s of STORES) {
+    const lesson = lessons.find(l => l.id === lessonId);
+    if (!lesson) { setToastMsg('未找到消课记录'); return; }
+    const s = STORES.find(x => x.id === lesson.storeId);
+    if (!s) { setToastMsg('门店信息错误'); return; }
+    try {
       const colRef = collection(db, APP_ID, 'data', `lessons_${s.id}`);
-      try {
-        await updateDoc(doc(colRef, lessonId), { status: 'approved', approvedBy: 'manager', approvedAt: Date.now() } as any);
-        // 同时扣学生课时
-        const lesson = lessons.find(l => l.id === lessonId);
-        if (lesson) {
-          const stu = students.find(st => st.id === lesson.studentId);
-          if (stu) {
-            for (const s2 of STORES) {
-              const stuCol = collection(db, APP_ID, 'data', `students_${s2.id}`);
-              try {
-                if (lesson.type === 'formal') {
-                  await updateDoc(doc(stuCol, lesson.studentId), { formalLessons: Math.max(0, stu.formalLessons - 1) } as any);
-                } else {
-                  await updateDoc(doc(stuCol, lesson.studentId), { giftedLessons: Math.max(0, stu.giftedLessons - 1) } as any);
-                }
-              } catch {}
-            }
-          }
+      await updateDoc(doc(colRef, lessonId), { status: 'approved', approvedBy: 'manager', approvedAt: Date.now() } as any);
+      // 同时扣学生课时
+      const stu = students.find(st => st.id === lesson.studentId);
+      if (stu) {
+        const stuCol = collection(db, APP_ID, 'data', `students_${s.id}`);
+        if (lesson.type === 'formal') {
+          await updateDoc(doc(stuCol, lesson.studentId), { formalLessons: Math.max(0, stu.formalLessons - 1) } as any);
+        } else {
+          await updateDoc(doc(stuCol, lesson.studentId), { giftedLessons: Math.max(0, stu.giftedLessons - 1) } as any);
         }
-      } catch {}
-    }
+      }
+      setToastMsg(`${lesson.studentName} 消课审核通过！`);
+    } catch (e: any) { setToastMsg('审核失败：' + e.message); }
   };
 
   const handleRejectLesson = async (lessonId: string) => {
-    for (const s of STORES) {
+    const lesson = lessons.find(l => l.id === lessonId);
+    if (!lesson) { setToastMsg('未找到消课记录'); return; }
+    const s = STORES.find(x => x.id === lesson.storeId);
+    if (!s) { setToastMsg('门店信息错误'); return; }
+    try {
       const colRef = collection(db, APP_ID, 'data', `lessons_${s.id}`);
-      try { await updateDoc(doc(colRef, lessonId), { status: 'rejected', approvedBy: 'manager', approvedAt: Date.now() } as any); } catch {}
-    }
+      await updateDoc(doc(colRef, lessonId), { status: 'rejected', approvedBy: 'manager', approvedAt: Date.now() } as any);
+      setToastMsg(`已拒绝 ${lesson.studentName} 的消课记录`);
+    } catch (e: any) { setToastMsg('拒绝失败：' + e.message); }
   };
 
   // ---- 添加老师 ----
@@ -194,7 +202,8 @@ export default function ManagerDashboard() {
     };
 
     const colRef = collection(db, APP_ID, 'data', `enrollments_${enrollment.storeId}`);
-    await addDoc(colRef, enrollment);
+    await setDoc(doc(colRef, enrollment.id), enrollment);
+    setAlertMsg(`${enrollment.studentName} 报名成功！锁定档位${enrollment.commissionRate*100}%`);
 
     // 同时更新学生课时
     const stored = storeFilter === 'all' ? enrollmentForm.storeId : storeFilter;
@@ -327,6 +336,13 @@ export default function ManagerDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-4">
+
+        {/* Toast */}
+        {toastMsg && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[80] bg-green-600 text-white px-5 py-2.5 rounded-xl shadow-lg text-sm font-medium">
+            {toastMsg}
+          </div>
+        )}
         {/* ========== 总览 ========== */}
         {tab === 'overview' && (
           <div className="space-y-4">
