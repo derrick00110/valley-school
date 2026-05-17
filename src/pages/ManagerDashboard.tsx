@@ -181,6 +181,7 @@ export default function ManagerDashboard() {
     };
     const colRef = collection(db, `students_${stu.storeId}`);
     await setDoc(doc(colRef, stu.id), stu);
+    setToastMsg(`已添加学生：${stu.name}`);
     setShowAddStudent(false);
     setStudentForm({ name: '', phone: '', teacherId: '', storeId: 'dongguan', note: '' });
   };
@@ -224,7 +225,7 @@ export default function ManagerDashboard() {
 
     const colRef = collection(db, `enrollments_${enrollment.storeId}`);
     await setDoc(doc(colRef, enrollment.id), enrollment);
-    setAlertMsg(`${enrollment.studentName} 报名成功！锁定档位${enrollment.commissionRate*100}%`);
+    setToastMsg(`${enrollment.studentName} 报名成功！锁定档位${enrollment.commissionRate*100}%`);
 
     // 同时更新学生课时
     const stored = storeFilter === 'all' ? enrollmentForm.storeId : storeFilter;
