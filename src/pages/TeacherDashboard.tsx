@@ -427,7 +427,12 @@ export default function TeacherDashboard() {
                               </button>
                             )}
                             {e.isUnlimited && !e.unlimitedHalfApproved && (
-                              <button className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded hover:bg-amber-100">
+                              <button onClick={async () => {
+                                if (!db) return;
+                                const colRef = collection(db, `enrollments_${storeId}`);
+                                await updateDoc(doc(colRef, e.id), { halfRequested: true } as any);
+                                setAlertMsg(`已提交「${e.course}」过半申请，待店长审核`);
+                              }} className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded hover:bg-amber-100">
                                 标记课程过半
                               </button>
                             )}
