@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { STORES, getCurrentPeriod, formatPeriodLabel, getCommissionTier, getStore } from '../config';
-import { calcLessonFee, calcUnlimitedHalfCommission, calcTeacherPeriodCommission, formatMoney } from '../utils/commission';
+import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, getTierByRevenue, getCurrentPeriodInfo, formatMoney } from '../utils/commission';
 import { shortId, formatDate } from '../utils/helpers';
 import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment } from '../types';
 import {
@@ -31,6 +31,7 @@ export default function ManagerDashboard() {
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [showAddEnrollment, setShowAddEnrollment] = useState(false);
   const [showSalaryDetail, setShowSalaryDetail] = useState<string | null>(null);
+  const [deleteConfirmStudent, setDeleteConfirmStudent] = useState<string | null>(null);
   const [teacherForm, setTeacherForm] = useState({ name: '', storeId: 'dongguan' as string });
   const [studentForm, setStudentForm] = useState({ name: '', phone: '', teacherId: '', storeId: 'dongguan' as string, note: '' });
   const [enrollmentForm, setEnrollmentForm] = useState({ studentId: '', studentName: '', course: '', courseType: 'fixed' as string, price: '', teacherId: '', storeId: 'dongguan' as string, formalLessons: '', giftedLessons: '0', isUnlimited: 'false' as string });
@@ -207,8 +208,42 @@ export default function ManagerDashboard() {
       } as any);
     }
 
+    // 检查是否需要升级该老师该周期的消课记录（补差价）
+    const currentTier = getTierByRevenue(teacherEnrollments.reduce((s, e) => s + e.price, 0) + price);
+    const prevTier = getTierByRevenue(teacherEnrollments.reduce((s, e) => s + e.price, 0));
+    if (currentTier.tier > prevTier.tier) {
+      const periodLessons = lessons.filter(l =>
+        l.teacherId === enrollmentForm.teacherId &&
+        l.status === 'approved' && l.type === 'formal'
+      );
+      const { upgrades } = calcUpgradeForLessons(periodLessons, prevTier.rate, currentTier.rate, enrollments);
+      // 更新每条消课记录的课时费
+      for (const up of upgrades) {
+        for (const s of STORES) {
+          try {
+            const colRef = collection(db, APP_ID, 'data', `lessons_${s.id}`);
+            await updateDoc(doc(colRef, up.lessonId), { commissionAmount: up.newAmount, upgradedFrom: up.oldAmount, upgradedAt: Date.now() } as any);
+          } catch {}
+        }
+      }
+      if (upgrades.length > 0) {
+        console.log(`✅ 档位升级 ${prevTier.label}→${currentTier.label}，补差价${upgrades.length}条，总额${formatMoney(upgrades.reduce((s,u)=>s+u.diff,0))}`);
+      }
+    }
+
     setShowAddEnrollment(false);
     setEnrollmentForm({ studentId: '', studentName: '', course: '', courseType: 'fixed', price: '', teacherId: '', storeId: 'dongguan', formalLessons: '', giftedLessons: '0', isUnlimited: 'false' });
+  };
+
+  // ---- 删除学生 ----
+  const handleDeleteStudent = async (studentId: string) => {
+    const stu = students.find(s => s.id === studentId);
+    if (!stu) return;
+    try {
+      const stuCol = collection(db, APP_ID, 'data', `students_${stu.storeId}`);
+      await deleteDoc(doc(stuCol, studentId));
+      setDeleteConfirmStudent(null);
+    } catch {}
   };
 
   // ---- 无限课时过半审核 ----
@@ -344,7 +379,8 @@ export default function ManagerDashboard() {
                 <p>• 月营业额 50,000+ → 40% 提成</p>
                 <p className="mt-1">• 考核周期：每月15号 ~ 次月15号</p>
                 <p>• 东莞总店：无底薪，按原有40%上限</p>
-                <p>• ⚠️ 提成比例在学生报名时锁定，不受后续营业额变化影响</p>
+                <p>• 🔄 提成比例在周期内动态浮动，突破阈值自动补差价（之前消过的课也自动升级）</p>
+                <p>• 🔒 结算日（15号）后比例锁死，之后消课不再变化</p>
               </div>
             </div>
           </div>
@@ -414,9 +450,13 @@ export default function ManagerDashboard() {
                         {stu.phone && <span>📞 {stu.phone}</span>}
                       </div>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex items-center gap-1">
                       <button onClick={() => setShowAddEnrollment(true)}
                         className="text-xs bg-purple-50 text-purple-600 px-2 py-1 rounded hover:bg-purple-100">报名</button>
+                      <button onClick={() => setDeleteConfirmStudent(stu.id)}
+                        className="text-xs bg-red-50 text-red-500 px-2 py-1 rounded hover:bg-red-100">
+                        <Trash2 size={10} />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -716,6 +756,24 @@ export default function ManagerDashboard() {
                 <button type="submit" className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm">确认报名</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ========== 删除学生确认弹窗 ========== */}
+      {deleteConfirmStudent && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+              <Trash2 className="h-6 w-6 text-red-600" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">确认删除学生？</h3>
+            <p className="text-sm text-slate-500 mb-6">
+              将删除「{students.find(s => s.id === deleteConfirmStudent)?.name}」的档案及相关报名记录
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirmStudent(null)} className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm">取消</button>
+              <button onClick={() => handleDeleteStudent(deleteConfirmStudent!)} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm">确认删除</button>
+            </div>
           </div>
         </div>
       )}
