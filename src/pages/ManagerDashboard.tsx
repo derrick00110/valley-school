@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, setDoc } from 'firebase/firestore';
-import { STORES, getCurrentPeriod, formatPeriodLabel, getCommissionTier, getStore } from '../config';
+import { STORES, getStore } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, getTierByRevenue, getCurrentPeriodInfo, formatMoney } from '../utils/commission';
 import { shortId, formatDate } from '../utils/helpers';
 import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment } from '../types';
@@ -45,7 +45,7 @@ export default function ManagerDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Period
-  const period = getCurrentPeriod();
+  const period = getCurrentPeriodInfo();
 
   // 监听所有数据（整批替换防竞态）
   useEffect(() => {
@@ -299,9 +299,12 @@ export default function ManagerDashboard() {
     const store = getStore(t.storeId);
     const periodEnroll = tEnrollments.filter(e => e.enrollmentDate >= period.start && e.enrollmentDate <= period.end);
     const periodRev = periodEnroll.reduce((s, e) => s + e.price, 0);
-    const tier = getCommissionTier(periodRev);
-    const result = calcTeacherPeriodCommission(tEnrollments, tLessons, store.baseSalary);
-    return { ...t, ...result, periodRevenue: periodRev, tier: tier.label, storeName: store.name };
+    const tier = getTierByRevenue(periodRev);
+    const lessonCommissions = tLessons.filter(l => l.type === 'formal').reduce((s, l) => s + (l.commissionAmount || 0), 0);
+    const halfCommissions = tEnrollments.filter(e => e.isUnlimited && e.unlimitedHalfApproved).reduce((s, e) => s + calcUnlimitedHalfCommission(e.price, e.commissionRate), 0);
+    const totalCommission = lessonCommissions + halfCommissions;
+    const totalPayable = store.baseSalary + totalCommission;
+    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary: store.baseSalary, totalPayable, periodRevenue: periodRev, tier: tier.label, storeName: store.name };
   });
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
