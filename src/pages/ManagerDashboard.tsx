@@ -47,53 +47,67 @@ export default function ManagerDashboard() {
   // Period
   const period = getCurrentPeriod();
 
-  // 监听所有数据
+  // 监听所有数据（整批替换防竞态）
   useEffect(() => {
     const col = (name: string, store: string) => collection(db, APP_ID, 'data', `${name}_${store}`);
 
-    // 老师不分店
+    // 老师不分店 — 整批替换
     const unsubTeachers = onSnapshot(collection(db, 'teachers'), snap => {
-      const list: Teacher[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() } as Teacher));
-      setTeachers(list);
-    });
+      try {
+        const list: Teacher[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher));
+        setTeachers(list);
+      } catch(e) { console.warn('teachers listener error', e); }
+    }, e => console.warn('teachers listener failed', e));
 
     const unsubs: (() => void)[] = [unsubTeachers];
 
+    // 合并两个店的数据到统一数组
+    const allStudents = new Map<string, Student>();
+    const allEnrollments = new Map<string, Enrollment>();
+    const allLessons = new Map<string, LessonRecord>();
+
     STORES.forEach(s => {
       unsubs.push(onSnapshot(col('students', s.id), snap => {
-        snap.forEach(d => {
-          const data = d.data() as Student;
-          setStudents(prev => {
-            const idx = prev.findIndex(x => x.id === d.id);
-            if (idx >= 0) {
-              const next = [...prev]; next[idx] = { ...data, id: d.id };
-              return next;
+        try {
+          snap.docChanges().forEach(change => {
+            const d = change.doc;
+            if (change.type === 'removed') {
+              allStudents.delete(d.id);
+            } else {
+              allStudents.set(d.id, { id: d.id, ...d.data() } as Student);
             }
-            return [...prev, { ...data, id: d.id }];
           });
-        });
-      }));
+          setStudents(Array.from(allStudents.values()));
+        } catch(e) { console.warn('students listener error', e); }
+      }, e => console.warn('students listener failed', e)));
+
       unsubs.push(onSnapshot(col('enrollments', s.id), snap => {
-        snap.forEach(d => {
-          const data = d.data() as Enrollment;
-          setEnrollments(prev => {
-            const idx = prev.findIndex(x => x.id === d.id);
-            if (idx >= 0) { const next = [...prev]; next[idx] = { ...data, id: d.id }; return next; }
-            return [...prev, { ...data, id: d.id }];
+        try {
+          snap.docChanges().forEach(change => {
+            const d = change.doc;
+            if (change.type === 'removed') {
+              allEnrollments.delete(d.id);
+            } else {
+              allEnrollments.set(d.id, { id: d.id, ...d.data() } as Enrollment);
+            }
           });
-        });
-      }));
+          setEnrollments(Array.from(allEnrollments.values()));
+        } catch(e) { console.warn('enrollments listener error', e); }
+      }, e => console.warn('enrollments listener failed', e)));
+
       unsubs.push(onSnapshot(col('lessons', s.id), snap => {
-        snap.forEach(d => {
-          const data = d.data() as LessonRecord;
-          setLessons(prev => {
-            const idx = prev.findIndex(x => x.id === d.id);
-            if (idx >= 0) { const next = [...prev]; next[idx] = { ...data, id: d.id }; return next; }
-            return [...prev, { ...data, id: d.id }];
+        try {
+          snap.docChanges().forEach(change => {
+            const d = change.doc;
+            if (change.type === 'removed') {
+              allLessons.delete(d.id);
+            } else {
+              allLessons.set(d.id, { id: d.id, ...d.data() } as LessonRecord);
+            }
           });
-        });
-      }));
+          setLessons(Array.from(allLessons.values()));
+        } catch(e) { console.warn('lessons listener error', e); }
+      }, e => console.warn('lessons listener failed', e)));
     });
 
     return () => unsubs.forEach(u => u());
