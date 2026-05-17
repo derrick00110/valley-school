@@ -143,10 +143,16 @@ export default function ManagerDashboard() {
   // ---- 添加老师 ----
   const handleAddTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
-    const t: Teacher = { id: shortId(), name: teacherForm.name, storeId: teacherForm.storeId as any, role: 'teacher' };
-    await setDoc(doc(db, 'teachers', t.id), t);
-    setShowAddTeacher(false);
-    setTeacherForm({ name: '', storeId: 'dongguan' });
+    if (!teacherForm.name.trim()) return;
+    try {
+      const t: Teacher = { id: shortId(), name: teacherForm.name.trim(), storeId: teacherForm.storeId as any, role: 'teacher' };
+      await setDoc(doc(db, 'teachers', t.id), t);
+      setToastMsg(`已添加老师：${t.name}`);
+      setShowAddTeacher(false);
+      setTeacherForm({ name: '', storeId: 'dongguan' });
+    } catch (e: any) {
+      setToastMsg('添加失败: ' + (e.message || '未知错误'));
+    }
   };
 
   // ---- 添加学生 ----
