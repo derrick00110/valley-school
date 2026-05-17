@@ -590,15 +590,22 @@ export default function ManagerDashboard() {
               {schedules.slice(0, 5).sort((a, b) => a.startTime.localeCompare(b.startTime)).map(s => (
                 <div key={s.id} className={`bg-white rounded-xl p-3 border shadow-sm ${s.checkedIn ? 'border-green-200' : 'border-slate-200'}`}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{s.startTime}-{s.endTime}</span>
-                      <span className="font-medium text-sm">{s.studentName}</span>
-                      <span className="text-xs text-slate-400">{s.course}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                        {getStore(s.storeId).shortName}
-                      </span>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{s.startTime}-{s.endTime}</span>
+                        <span className="font-medium text-sm">{s.studentName}</span>
+                        <span className="text-xs text-slate-400">{s.course}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        <span>👤 {teachers.find(t => t.id === s.teacherId)?.name || '未知老师'}</span>
+                        <span>📅 {s.date}</span>
+                        {s.room && <span>🏫 {s.room}</span>}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                          {getStore(s.storeId).shortName}
+                        </span>
+                      </div>
                     </div>
-                    {s.checkedIn ? <CheckCircle size={14} className="text-green-500" /> : <span className="text-xs text-amber-500">未签到</span>}
+                    {s.checkedIn ? <CheckCircle size={14} className="text-green-500 shrink-0" /> : <span className="text-xs text-amber-500 shrink-0">未签到</span>}
                   </div>
                 </div>
               ))}
