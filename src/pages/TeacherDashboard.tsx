@@ -198,6 +198,7 @@ export default function TeacherDashboard() {
       studentName: scheduleForm.studentName,
       course: scheduleForm.course,
       teacherId,
+      teacherName,
       storeId,
       date: today,
       startTime: scheduleForm.startTime,
