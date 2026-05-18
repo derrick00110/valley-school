@@ -148,7 +148,17 @@ export default function TeacherDashboard() {
     d.setDate(d.getDate() - d.getDay() + i);
     return formatDate(d);
   });
-  const daySchedules = schedules.filter(s => s.date === today);
+  const [showAllSchedules, setShowAllSchedules] = useState(false);
+const [filterCourseType, setFilterCourseType] = useState('all');
+const [studentSearch, setStudentSearch] = useState('');
+
+const displaySchedules = showAllSchedules
+  ? schedules
+  : schedules.filter(s => s.date === today);
+const filteredSchedules = filterCourseType === 'all'
+  ? displaySchedules
+  : displaySchedules.filter(s => s.course.includes(filterCourseType));
+const daySchedules = schedules.filter(s => s.date === today);
 
   // ---- 消课处理 ----
   const handleDeductLesson = async () => {
@@ -343,15 +353,30 @@ export default function TeacherDashboard() {
               <Plus size={16} /> 添加排课
             </button>
 
-            {/* 当天课程 */}
+            {/* 筛选栏 */}
+            <div className="flex items-center gap-2 mb-4">
+              <button onClick={() => setShowAllSchedules(!showAllSchedules)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${showAllSchedules ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                {showAllSchedules ? '📋 全部课程' : '📅 今日课程'}
+              </button>
+              <select className="px-2 py-1.5 bg-slate-50 border rounded-lg text-xs outline-none"
+                value={filterCourseType} onChange={e => setFilterCourseType(e.target.value)}>
+                <option value="all">全部类型</option>
+                <option value="体验课">体验课</option>
+                <option value="正式课">正式课</option>
+              </select>
+              <span className="text-xs text-slate-400 ml-auto">{filteredSchedules.length} 条</span>
+            </div>
+
+            {/* 课程列表 */}
             <div className="space-y-2">
-              {daySchedules.length === 0 ? (
+              {filteredSchedules.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
                   <Calendar size={48} className="mx-auto mb-3 text-slate-200" />
-                  <p className="text-sm">今天没有课程安排</p>
+                  <p className="text-sm">{showAllSchedules ? '暂无课程安排' : '今天没有课程安排'}</p>
                 </div>
               ) : (
-                daySchedules.sort((a, b) => a.startTime.localeCompare(b.startTime)).map(s => (
+                filteredSchedules.sort((a, b) => a.startTime.localeCompare(b.startTime)).map(s => (
                   <div key={s.id} className={`bg-white rounded-xl p-4 border shadow-sm transition-all ${s.checkedIn ? 'border-green-200 bg-green-50/30' : 'border-slate-200'}`}>
                     <div className="flex items-start justify-between">
                       <div>
@@ -398,17 +423,34 @@ export default function TeacherDashboard() {
                 <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
                   <h3 className="font-bold text-slate-800 mb-4">添加排课</h3>
                   <form onSubmit={handleAddSchedule} className="space-y-3">
-                    <select className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm" required
-                      value={scheduleForm.studentId}
-                      onChange={e => {
-                        const stu = students.find(s => s.id === e.target.value);
-                        setScheduleForm({ ...scheduleForm, studentId: e.target.value, studentName: stu?.name || '' });
-                      }}>
-                      <option value="">选择学生</option>
-                      {students.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}（剩余正式{s.formalLessons}节）</option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <input className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="搜索学生姓名..." value={studentSearch}
+                        onChange={e => { setStudentSearch(e.target.value); setScheduleForm({ ...scheduleForm, studentId: '', studentName: '' }); }} />
+                      {studentSearch && !scheduleForm.studentId && (
+                        <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-white border rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                          {students.filter(s => s.name.includes(studentSearch)).length === 0 ? (
+                            <div className="p-3 text-xs text-slate-400">无匹配学生</div>
+                          ) : (
+                            students.filter(s => s.name.includes(studentSearch)).map(s => (
+                              <button key={s.id} type="button"
+                                onClick={() => {
+                                  setScheduleForm({ ...scheduleForm, studentId: s.id, studentName: s.name });
+                                  setStudentSearch(s.name);
+                                }}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 transition-colors">
+                                {s.name} <span className="text-xs text-slate-400">（剩余{s.formalLessons}节）</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {scheduleForm.studentName && (
+                      <div className="text-xs text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg">
+                        ✅ 已选学生：{scheduleForm.studentName}
+                      </div>
+                    )}
                     <input className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="课程" value={scheduleForm.course} required
                       onChange={e => setScheduleForm({ ...scheduleForm, course: e.target.value })} />
                     <div className="grid grid-cols-2 gap-2">
