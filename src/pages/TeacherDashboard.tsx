@@ -451,25 +451,19 @@ const daySchedules = schedules.filter(s => s.date === today);
                         ✅ 已选学生：{scheduleForm.studentName}
                       </div>
                     )}
-                    <input className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm" placeholder="课程" value={scheduleForm.course} required readOnly
-                      onClick={() => document.getElementById('courseMenu')?.classList.toggle('hidden')}
-                      className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm cursor-pointer" />
-                    <div id="courseMenu" className="hidden absolute z-10 mt-1 bg-white border rounded-xl shadow-lg p-2">
-                      {['声乐','钢琴','吉他','架子鼓'].map(inst => (
-                        <div key={inst} className="mb-1">
-                          <div className="text-[10px] text-slate-400 px-2 py-0.5">{inst}</div>
-                          <div className="flex gap-1">
-                            {['正式课','体验课'].map(type => (
-                              <button key={type} type="button"
-                                onClick={() => { setScheduleForm({ ...scheduleForm, course: inst+type }); document.getElementById('courseMenu')?.classList.add('hidden'); }}
-                                className={`px-3 py-1 text-xs rounded-lg ${scheduleForm.course === inst+type ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-slate-100 text-slate-600'}`}>
-                                {type}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <select className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm" required
+                      value={scheduleForm.course}
+                      onChange={e => setScheduleForm({ ...scheduleForm, course: e.target.value })}>
+                      <option value="">选择课程</option>
+                      <option value="声乐正式课">🎤 声乐正式课</option>
+                      <option value="声乐体验课">🎤 声乐体验课</option>
+                      <option value="钢琴正式课">🎹 钢琴正式课</option>
+                      <option value="钢琴体验课">🎹 钢琴体验课</option>
+                      <option value="吉他正式课">🎸 吉他正式课</option>
+                      <option value="吉他体验课">🎸 吉他体验课</option>
+                      <option value="架子鼓正式课">🥁 架子鼓正式课</option>
+                      <option value="架子鼓体验课">🥁 架子鼓体验课</option>
+                    </select>
                     <div className="grid grid-cols-2 gap-2">
                       <input type="time" className="px-3 py-2 bg-slate-50 border rounded-lg text-sm" value={scheduleForm.startTime}
                         onChange={e => setScheduleForm({ ...scheduleForm, startTime: e.target.value })} />
