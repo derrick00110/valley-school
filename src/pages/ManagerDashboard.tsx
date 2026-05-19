@@ -574,6 +574,17 @@ export default function ManagerDashboard() {
                         <span>赠送: <strong className="text-emerald-600">{stu.giftedLessons}</strong> 节</span>
                         {stu.phone && <span>📞 {stu.phone}</span>}
                       </div>
+                      <div className="flex items-center gap-1 mt-1">
+                        {(() => {
+                          const enrolled = enrollments.filter(e => e.studentId === stu.id);
+                          if (enrolled.length === 0) return <span className="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">未报名</span>;
+                          return enrolled.map(e => (
+                            <span key={e.id} className={`text-[10px] px-1.5 py-0.5 rounded mr-1 ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                              {e.isUnlimited ? '♾️' : '📋'} {e.course}
+                            </span>
+                          ));
+                        })()}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={() => setShowAddEnrollment(true)}
