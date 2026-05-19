@@ -209,6 +209,8 @@ export default function ManagerDashboard() {
   const handleAddEnrollment = async (e: React.FormEvent) => {
     e.preventDefault();
     const price = Number(enrollmentForm.price);
+    const teacher = teachers.find(t => t.id === enrollmentForm.teacherId);
+    if (!teacher) { setToastMsg("请先选择老师"); return; }
     const formalLessons = Number(enrollmentForm.formalLessons);
     const giftedLessons = Number(enrollmentForm.giftedLessons);
     const isUnlimited = enrollmentForm.isUnlimited === 'true';
@@ -229,7 +231,7 @@ export default function ManagerDashboard() {
       courseType: isUnlimited ? 'unlimited' : 'fixed',
       price,
       teacherId: enrollmentForm.teacherId,
-      storeId: enrollmentForm.storeId as any,
+      storeId: teacher.storeId,
       enrollmentDate: formatDate(new Date()),
       commissionPeriod: period.period,
       commissionRate: tier.rate,
