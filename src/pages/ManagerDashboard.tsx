@@ -47,6 +47,8 @@ export default function ManagerDashboard() {
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
   const [editEnrollment, setEditEnrollment] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState('');
+  const [editFormal, setEditFormal] = useState('');
+  const [editGifted, setEditGifted] = useState('');
 
   // Period
   const period = getCurrentPeriodInfo();
@@ -916,41 +918,40 @@ export default function ManagerDashboard() {
                 {stuEnroll.map(e => (
                   <div key={e.id} className="bg-slate-50 rounded-xl p-3 border border-slate-100">
                     <div className="flex items-start justify-between">
-                      <div>
+                      <div className="flex-1">
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium text-sm">{e.course}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                            {e.isUnlimited ? '无限课时' : '固定课时'}
-                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>{e.isUnlimited ? '无限课时' : '固定课时'}</span>
                           {e.status === 'completed' && <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded">已结课</span>}
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          ¥{e.price} · 锁定{e.commissionRate*100}% · {e.formalLessons}节正式+{e.giftedLessons}节赠送
-                          · {teachers.find(t => t.id === e.teacherId)?.name}老师
-                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5">¥{e.price} · 锁定{e.commissionRate*100}% · {e.formalLessons}节正式+{e.giftedLessons}节赠送 · {teachers.find(t => t.id === e.teacherId)?.name}老师</div>
                         {editEnrollment === e.id ? (
-                          <div className="flex items-center gap-1 mt-1">
-                            <input className="w-24 px-2 py-0.5 text-xs border rounded" type="number" value={editPrice}
-                              onChange={e2 => setEditPrice(e2.target.value)} placeholder="金额" />
-                            <button onClick={async () => {
-                              const colRef = collection(db, `enrollments_${e.storeId}`);
-                              await updateDoc(doc(colRef, e.id), { price: Number(editPrice) } as any);
-                              setToastMsg('报名金额已更新');
-                              setEditEnrollment(null);
-                            }} className="text-xs bg-indigo-500 text-white px-2 py-0.5 rounded">保存</button>
-                            <button onClick={() => setEditEnrollment(null)} className="text-xs text-slate-400 px-1">取消</button>
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            <input className="w-16 px-1.5 py-0.5 text-xs border rounded" value={editPrice} onChange={e2=>setEditPrice(e2.target.value)} placeholder="金额" />
+                            <input className="w-12 px-1.5 py-0.5 text-xs border rounded" type="number" value={editFormal} onChange={e2=>setEditFormal(e2.target.value)} placeholder="正式课" />
+                            <input className="w-12 px-1.5 py-0.5 text-xs border rounded" type="number" value={editGifted} onChange={e2=>setEditGifted(e2.target.value)} placeholder="赠送" />
+                            <button onClick={async()=>{
+                              const colRef=collection(db,`enrollments_${e.storeId}`);
+                              await updateDoc(doc(colRef,e.id),{price:Number(editPrice),formalLessons:Number(editFormal),giftedLessons:Number(editGifted)} as any);
+                              setToastMsg('已更新');setEditEnrollment(null);
+                            }} className="px-2 py-0.5 bg-indigo-600 text-white rounded text-xs">保存</button>
+                            <button onClick={()=>setEditEnrollment(null)} className="px-2 py-0.5 bg-slate-200 rounded text-xs">取消</button>
+                            <button onClick={async()=>{
+                              if(!confirm('确定删除？'))return;
+                              const colRef=collection(db,`enrollments_${e.storeId}`);
+                              await deleteDoc(doc(colRef,e.id));
+                              setToastMsg('已删除');setSelectedStudent(null);
+                            }} className="px-2 py-0.5 bg-red-500 text-white rounded text-xs">删除</button>
                           </div>
                         ) : (
-                          <button onClick={() => { setEditEnrollment(e.id); setEditPrice(String(e.price)); }}
-                            className="text-xs text-indigo-600 mt-1 underline">修改金额</button>
+                          <button onClick={()=>{setEditEnrollment(e.id);setEditPrice(String(e.price));setEditFormal(String(e.formalLessons));setEditGifted(String(e.giftedLessons))}} className="text-xs text-indigo-600 mt-1 underline">编辑报名</button>
                         )}
                       </div>
                     </div>
                   </div>
                 ))}
                 {stuEnroll.length === 0 && <p className="text-xs text-slate-400 py-4 text-center">暂无报名记录</p>}
-              </div>
-              <h4 className="font-bold text-sm mt-4 mb-2">📖 消课历史</h4>
+              </div><h4 className="font-bold text-sm mt-4 mb-2">📖 消课历史</h4>
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {stuLessons.sort((a,b) => b.createdAt - a.createdAt).map(l => (
                   <div key={l.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-slate-50 rounded">
