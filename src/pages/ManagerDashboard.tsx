@@ -44,6 +44,9 @@ export default function ManagerDashboard() {
   const [studentForm, setStudentForm] = useState({ name: '', phone: '', teacherId: '', storeId: 'dongguan' as string, note: '' });
   const [enrollmentForm, setEnrollmentForm] = useState({ studentId: '', studentName: '', course: '', courseType: 'fixed' as string, price: '', teacherId: '', storeId: 'dongguan' as string, formalLessons: '', giftedLessons: '0', isUnlimited: 'false' as string });
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
+  const [editEnrollment, setEditEnrollment] = useState<string | null>(null);
+  const [editPrice, setEditPrice] = useState('');
 
   // Period
   const period = getCurrentPeriodInfo();
@@ -550,7 +553,7 @@ export default function ManagerDashboard() {
             </div>
             <div className="space-y-2">
               {students.filter(s => (storeFilter === 'all' || s.storeId === storeFilter) && s.name.includes(searchTerm)).map(stu => (
-                <div key={stu.id} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+                <div key={stu.id} onClick={() => setSelectedStudent(stu.id)} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-colors">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">
@@ -882,6 +885,89 @@ export default function ManagerDashboard() {
           </div>
         </div>
       )}
+      {/* ========== 学生详情弹窗 ========== */}
+      {selectedStudent && (() => {
+        const stu = students.find(s => s.id === selectedStudent);
+        if (!stu) return null;
+        const stuEnroll = enrollments.filter(e => e.studentId === stu.id);
+        const stuLessons = lessons.filter(l => l.studentId === stu.id);
+        const totalFormal = stuEnroll.reduce((s, e) => s + e.formalLessons, 0);
+        const usedLessons = stuLessons.filter(l => l.status === 'approved' && l.type === 'formal').length;
+        return (
+          <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedStudent(null)}>
+            <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-lg">{stu.name}</h3>
+                <button onClick={() => setSelectedStudent(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+              </div>
+              <div className="text-xs text-slate-500 mb-4">
+                {teachers.find(t => t.id === stu.teacherId)?.name}老师 · {getStore(stu.storeId).name}
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-4 text-center text-xs">
+                <div className="bg-indigo-50 rounded-xl py-3"><div className="text-lg font-bold text-indigo-700">{totalFormal}</div><div className="text-indigo-500">总课时</div></div>
+                <div className="bg-green-50 rounded-xl py-3"><div className="text-lg font-bold text-green-700">{stu.formalLessons}</div><div className="text-green-500">剩余正式</div></div>
+                <div className="bg-amber-50 rounded-xl py-3"><div className="text-lg font-bold text-amber-700">{usedLessons}</div><div className="text-amber-500">已上课</div></div>
+                <div className="bg-purple-50 rounded-xl py-3"><div className="text-lg font-bold text-purple-700">{stu.giftedLessons}</div><div className="text-purple-500">赠送剩余</div></div>
+              </div>
+              <h4 className="font-bold text-sm mb-2">📋 报名记录</h4>
+              <div className="space-y-2">
+                {stuEnroll.map(e => (
+                  <div key={e.id} className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium text-sm">{e.course}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                            {e.isUnlimited ? '无限课时' : '固定课时'}
+                          </span>
+                          {e.status === 'completed' && <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded">已结课</span>}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          ¥{e.price} · 锁定{e.commissionRate*100}% · {e.formalLessons}节正式+{e.giftedLessons}节赠送
+                          · {teachers.find(t => t.id === e.teacherId)?.name}老师
+                        </div>
+                        {editEnrollment === e.id ? (
+                          <div className="flex items-center gap-1 mt-1">
+                            <input className="w-24 px-2 py-0.5 text-xs border rounded" type="number" value={editPrice}
+                              onChange={e2 => setEditPrice(e2.target.value)} placeholder="金额" />
+                            <button onClick={async () => {
+                              const colRef = collection(db, `enrollments_${e.storeId}`);
+                              await updateDoc(doc(colRef, e.id), { price: Number(editPrice) } as any);
+                              setToastMsg('报名金额已更新');
+                              setEditEnrollment(null);
+                            }} className="text-xs bg-indigo-500 text-white px-2 py-0.5 rounded">保存</button>
+                            <button onClick={() => setEditEnrollment(null)} className="text-xs text-slate-400 px-1">取消</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setEditEnrollment(e.id); setEditPrice(String(e.price)); }}
+                            className="text-xs text-indigo-600 mt-1 underline">修改金额</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {stuEnroll.length === 0 && <p className="text-xs text-slate-400 py-4 text-center">暂无报名记录</p>}
+              </div>
+              <h4 className="font-bold text-sm mt-4 mb-2">📖 消课历史</h4>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {stuLessons.sort((a,b) => b.createdAt - a.createdAt).map(l => (
+                  <div key={l.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-slate-50 rounded">
+                    <span>{l.course} · {l.date}</span>
+                    <span className={`px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {l.type === 'formal' ? '正式' : '赠送'}
+                    </span>
+                    <span className={`${l.status === 'approved' ? 'text-green-600' : l.status === 'pending' ? 'text-amber-600' : 'text-red-600'}`}>
+                      {l.status === 'approved' ? '已通过' : l.status === 'pending' ? '待审核' : '已拒绝'}
+                    </span>
+                  </div>
+                ))}
+                {stuLessons.length === 0 && <p className="text-xs text-slate-400 text-center py-2">暂无消课记录</p>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ========== 删除老师确认弹窗 ========== */}
       {deleteConfirmTeacher && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
