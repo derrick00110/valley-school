@@ -679,6 +679,15 @@ export default function ManagerDashboard() {
                     className="text-xs bg-amber-50 text-amber-600 px-3 py-1.5 rounded-lg hover:bg-amber-100">
                     确认过半（发{formatMoney(calcUnlimitedHalfCommission(e.price, e.commissionRate))}）
                   </button>
+                  <button onClick={async () => {
+                    try {
+                      const colRef = collection(db, `enrollments_${e.storeId}`);
+                      await updateDoc(doc(colRef, e.id), { halfRequested: false } as any);
+                      setToastMsg(`已拒绝 ${e.studentName} 的过半申请`);
+                    } catch(err) { setToastMsg('操作失败'); }
+                  }} className="text-xs bg-red-50 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-100">
+                    拒绝
+                  </button>
                 </div>
               ))
             )}
