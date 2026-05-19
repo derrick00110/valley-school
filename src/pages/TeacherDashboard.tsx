@@ -509,7 +509,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                 <p className="text-sm">暂无学生，点击上方按钮添加</p>
               </div>
             ) : (
-              students.map(stu => {
+              students.filter(s => s.name.includes(studentSearch)).map(stu => {
                 const stuEnrollments = enrollments.filter(e => e.studentId === stu.id && e.status === 'active');
                 return (
                   <div key={stu.id} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
