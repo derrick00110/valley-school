@@ -49,6 +49,7 @@ export default function ManagerDashboard() {
   const [editPrice, setEditPrice] = useState('');
   const [editFormal, setEditFormal] = useState('');
   const [editGifted, setEditGifted] = useState('');
+  const [editUnlimited, setEditUnlimited] = useState('false');
 
   // Period
   const period = getCurrentPeriodInfo();
@@ -944,7 +945,7 @@ export default function ManagerDashboard() {
                             }} className="px-2 py-0.5 bg-red-500 text-white rounded text-xs">删除</button>
                           </div>
                         ) : (
-                          <button onClick={()=>{setEditEnrollment(e.id);setEditPrice(String(e.price));setEditFormal(String(e.formalLessons));setEditGifted(String(e.giftedLessons))}} className="text-xs text-indigo-600 mt-1 underline">编辑报名</button>
+                          <button onClick={()=>{setEditEnrollment(e.id);setEditPrice(String(e.price));setEditFormal(String(e.formalLessons));setEditGifted(String(e.giftedLessons));setEditUnlimited(String(e.isUnlimited))}} className="text-xs text-indigo-600 mt-1 underline">编辑报名</button>
                         )}
                       </div>
                     </div>
