@@ -118,14 +118,14 @@ export default function TeacherDashboard() {
     const col = (name: string) => collection(db, `${name}_${storeId}`);
 
     const unsubStudents = onSnapshot(col('students'), snap => {
-      const list: Student[] = [];
-      snap.forEach(d => { const data = d.data(); if (data.teacherId === teacherId) list.push({ id: d.id, ...data } as Student); });
-      setStudents(list);
+      const map = new Map<string, Student>();
+      snap.forEach(d => { const data = d.data() as Student; if (data.teacherId === teacherId) map.set(d.id, { id: d.id, ...data }); });
+      setStudents(Array.from(map.values()));
     });
     const unsubEnroll = onSnapshot(col('enrollments'), snap => {
-      const list: Enrollment[] = [];
-      snap.forEach(d => { const data = d.data(); if (data.teacherId === teacherId) list.push({ id: d.id, ...data } as Enrollment); });
-      setEnrollments(list);
+      const map = new Map<string, Enrollment>();
+      snap.forEach(d => { const data = d.data() as Enrollment; if (data.teacherId === teacherId) map.set(d.id, { id: d.id, ...data }); });
+      setEnrollments(Array.from(map.values()));
     });
     const unsubLessons = onSnapshot(col('lessons'), snap => {
       const list: LessonRecord[] = [];
