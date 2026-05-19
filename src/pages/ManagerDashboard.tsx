@@ -50,6 +50,7 @@ export default function ManagerDashboard() {
   const [editFormal, setEditFormal] = useState('');
   const [editGifted, setEditGifted] = useState('');
   const [editUnlimited, setEditUnlimited] = useState('false');
+  const [lessonFilter, setLessonFilter] = useState('all');
 
   // Period
   const period = getCurrentPeriodInfo();
@@ -628,8 +629,17 @@ export default function ManagerDashboard() {
               消课审核
               {allPending.length > 0 && <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">{allPending.length} 条待审核</span>}
             </h2>
+            <div className="flex items-center gap-2 mb-3">
+              <select className="px-2 py-1 bg-slate-50 border rounded-lg text-xs outline-none" value={lessonFilter} onChange={e => setLessonFilter(e.target.value)}>
+                <option value="all">全部</option>
+                <option value="pending">待审核</option>
+                <option value="approved">已通过</option>
+                <option value="rejected">已拒绝</option>
+              </select>
+              <span className="text-xs text-slate-400">{lessons.filter(l => (storeFilter === 'all' || l.storeId === storeFilter)).length} 条</span>
+            </div>
             <div className="space-y-2">
-              {lessons.filter(l => (storeFilter === 'all' || l.storeId === storeFilter))
+              {lessons.filter(l => (storeFilter === 'all' || l.storeId === storeFilter) && (lessonFilter === 'all' || l.status === lessonFilter))
                 .sort((a, b) => b.createdAt - a.createdAt).map(l => (
                 <div key={l.id} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center justify-between">
                   <div>
@@ -666,10 +676,10 @@ export default function ManagerDashboard() {
 
             {/* 无限课时过半审核 */}
             <h3 className="font-bold text-sm mt-6 mb-3">无限课时过半审核</h3>
-            {enrollments.filter(e => e.isUnlimited && !e.unlimitedHalfApproved && (storeFilter === 'all' || e.storeId === storeFilter)).length === 0 ? (
+            {enrollments.filter(e => e.isUnlimited && !e.unlimitedHalfApproved && e.halfRequested && (storeFilter === 'all' || e.storeId === storeFilter)).length === 0 ? (
               <p className="text-xs text-slate-400">暂无待审核的过半申请</p>
             ) : (
-              enrollments.filter(e => e.isUnlimited && !e.unlimitedHalfApproved && (storeFilter === 'all' || e.storeId === storeFilter)).map(e => (
+              enrollments.filter(e => e.isUnlimited && !e.unlimitedHalfApproved && e.halfRequested && (storeFilter === 'all' || e.storeId === storeFilter)).map(e => (
                 <div key={e.id} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center justify-between mb-2">
                   <div>
                     <span className="font-medium text-sm">{e.studentName}</span>
