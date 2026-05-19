@@ -495,6 +495,9 @@ const daySchedules = schedules.filter(s => s.date === today);
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-xs text-slate-400">{students.length} 个学生</span>
+              <input className="px-2 py-1 bg-slate-50 border rounded-lg text-xs outline-none w-32 ml-2"
+                placeholder="搜索学生..." value={studentSearch}
+                onChange={e => setStudentSearch(e.target.value)} />
               <button onClick={() => setShowAddStudent(true)}
                 className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium">
                 <Plus size={14} /> 添加学生
