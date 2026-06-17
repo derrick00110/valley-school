@@ -54,6 +54,7 @@ export default function ManagerDashboard() {
 
   // Period
   const period = getCurrentPeriodInfo();
+  const [periodFilter, setPeriodFilter] = useState<'current' | 'all'>('current');
 
   // 监听所有数据（整批替换防竞态）
   useEffect(() => {
@@ -335,7 +336,10 @@ export default function ManagerDashboard() {
   const storeCounts = STORES.map(s => {
     const storeStudents = students.filter(st => st.storeId === s.id);
     const storeEnroll = enrollments.filter(e => e.storeId === s.id);
-    const storeRevenue = storeEnroll.reduce((sum, e) => sum + e.price, 0);
+    const storeEnrollInPeriod = periodFilter === 'current'
+      ? storeEnroll.filter(e => e.enrollmentDate >= period.start && e.enrollmentDate <= period.end)
+      : storeEnroll;
+    const storeRevenue = storeEnrollInPeriod.reduce((sum, e) => sum + e.price, 0);
     const pendingLessons = lessons.filter(l => l.storeId === s.id && l.status === 'pending').length;
     return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons };
   });
@@ -343,7 +347,7 @@ export default function ManagerDashboard() {
   // 工资计算
   const salaryData = teachers.map(t => {
     const tEnrollments = enrollments.filter(e => e.teacherId === t.id);
-    const tLessons = lessons.filter(l => l.teacherId === t.id && l.status === 'approved');
+    const tLessons = lessons.filter(l => l.teacherId === t.id && l.status === 'approved' && (periodFilter === 'all' || (l.date >= period.start && l.date <= period.end)));
     const store = getStore(t.storeId);
     const periodEnroll = tEnrollments.filter(e => e.enrollmentDate >= period.start && e.enrollmentDate <= period.end);
     const periodRev = periodEnroll.reduce((s, e) => s + e.price, 0);
@@ -376,6 +380,12 @@ export default function ManagerDashboard() {
               <ShieldCheck size={20} className="text-indigo-600" />
               <span className="font-bold text-sm">店长管理端</span>
               <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{period.label}</span>
+              <button
+                onClick={() => setPeriodFilter(periodFilter === 'current' ? 'all' : 'current')}
+                className={`text-xs px-2 py-0.5 rounded font-medium ${periodFilter === 'current' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'}`}
+              >
+                {periodFilter === 'current' ? '当前周期' : '全部数据'}
+              </button>
             </div>
             <div className="flex items-center gap-3">
               {/* 门店筛选 */}
@@ -722,6 +732,12 @@ export default function ManagerDashboard() {
               <div>
                 <h2 className="font-bold text-sm">薪资结算</h2>
                 <p className="text-xs text-slate-400 mt-0.5">考核周期：{period.label}</p>
+                <button
+                  onClick={() => setPeriodFilter(periodFilter === 'current' ? 'all' : 'current')}
+                  className={`text-xs px-2 py-0.5 rounded font-medium ml-auto ${periodFilter === 'current' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'}`}
+                >
+                  {periodFilter === 'current' ? '仅当前周期' : '全部数据'}
+                </button>
               </div>
               <button className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium">
                 <Download size={14} /> 导出报表
