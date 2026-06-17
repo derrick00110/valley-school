@@ -353,7 +353,7 @@ export default function ManagerDashboard() {
     const periodRev = periodEnroll.reduce((s, e) => s + e.price, 0);
     const tier = getTierByRevenue(periodRev);
     const lessonCommissions = tLessons.filter(l => l.type === 'formal').reduce((s, l) => s + (l.commissionAmount || 0), 0);
-    const halfCommissions = tEnrollments.filter(e => e.isUnlimited && e.unlimitedHalfApproved).reduce((s, e) => s + calcUnlimitedHalfCommission(e.price, e.commissionRate), 0);
+    const halfCommissions = tEnrollments.filter(e => e.isUnlimited && e.unlimitedHalfApproved && (periodFilter === 'all' || e.commissionPeriod === period.period)).reduce((s, e) => s + calcUnlimitedHalfCommission(e.price, e.commissionRate), 0);
     const totalCommission = lessonCommissions + halfCommissions;
     const totalPayable = store.baseSalary + totalCommission;
     return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary: store.baseSalary, totalPayable, periodRevenue: periodRev, tier: tier.label, storeName: store.name };
