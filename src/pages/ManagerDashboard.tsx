@@ -269,22 +269,34 @@ export default function ManagerDashboard() {
     const currentTier = getTierByRevenue(teacherEnrollments.reduce((s, e) => s + e.price, 0) + price);
     const prevTier = getTierByRevenue(teacherEnrollments.reduce((s, e) => s + e.price, 0));
     if (currentTier.tier > prevTier.tier) {
+      // 仅升级同周期内的已审核正式课
+      const samePeriodEnrollIds = enrollments
+        .filter(en => en.commissionPeriod === period.period)
+        .map(en => en.id);
       const periodLessons = lessons.filter(l =>
+        samePeriodEnrollIds.includes(l.enrollmentId) &&
         l.teacherId === enrollmentForm.teacherId &&
         l.status === 'approved' && l.type === 'formal'
       );
       const { upgrades } = calcUpgradeForLessons(periodLessons, prevTier.rate, currentTier.rate, enrollments);
       // 更新每条消课记录的课时费
       for (const up of upgrades) {
-        for (const s of STORES) {
-          try {
-            const colRef = collection(db, `lessons_${s.id}`);
-            await updateDoc(doc(colRef, up.lessonId), { commissionAmount: up.newAmount, upgradedFrom: up.oldAmount, upgradedAt: Date.now() } as any);
-          } catch {}
-        }
+        const lesson = lessons.find(l => l.id === up.lessonId);
+        if (!lesson) continue;
+        try {
+          const lessonCol = collection(db, `lessons_${lesson.storeId}`);
+          await updateDoc(doc(lessonCol, up.lessonId), { commissionAmount: up.newAmount, upgradedFrom: up.oldAmount, upgradedAt: Date.now() } as any);
+        } catch {}
+      }
+      // 同步更新该周期内已有 enrollment 的 commissionRate（显示档位随周期动态提升）
+      for (const en of teacherEnrollments) {
+        try {
+          const enCol = collection(db, `enrollments_${en.storeId}`);
+          await updateDoc(doc(enCol, en.id), { commissionRate: currentTier.rate } as any);
+        } catch {}
       }
       if (upgrades.length > 0) {
-        console.log(`✅ 档位升级 ${prevTier.label}→${currentTier.label}，补差价${upgrades.length}条，总额${formatMoney(upgrades.reduce((s,u)=>s+u.diff,0))}`);
+        console.log(`档位升级 ${prevTier.label}→${currentTier.label}，补差价${upgrades.length}条`);
       }
     }
 
@@ -352,7 +364,16 @@ export default function ManagerDashboard() {
     const periodEnroll = tEnrollments.filter(e => e.enrollmentDate >= period.start && e.enrollmentDate <= period.end);
     const periodRev = periodEnroll.reduce((s, e) => s + e.price, 0);
     const tier = getTierByRevenue(periodRev);
-    const lessonCommissions = tLessons.filter(l => l.type === 'formal').reduce((s, l) => s + (l.commissionAmount || 0), 0);
+    const lessonCommissions = tLessons.filter(l => l.type === 'formal').reduce((s, l) => {
+      // 实时重新计算：基于 enrollment 所属周期的营收确定档位
+      const enroll = tEnrollments.find(e => e.id === l.enrollmentId);
+      if (!enroll || enroll.formalLessons <= 0) return s;
+      const ePeriodTotal = tEnrollments
+        .filter(e => e.commissionPeriod === enroll.commissionPeriod)
+        .reduce((sum, e) => sum + e.price, 0);
+      const eTier = getTierByRevenue(ePeriodTotal);
+      return s + calcLessonFee(enroll.price, eTier.rate, enroll.formalLessons);
+    }, 0);
     const halfCommissions = tEnrollments.filter(e => e.isUnlimited && e.unlimitedHalfApproved && (periodFilter === 'all' || e.commissionPeriod === period.period)).reduce((s, e) => s + calcUnlimitedHalfCommission(e.price, e.commissionRate), 0);
     const totalCommission = lessonCommissions + halfCommissions;
     const totalPayable = store.baseSalary + totalCommission;

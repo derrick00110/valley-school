@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { STORES } from '../config';
-import { calcLessonFee, calcUnlimitedHalfCommission, formatMoney, getTierByRevenue, getCurrentPeriodInfo } from '../utils/commission';
+import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, formatMoney, getTierByRevenue, getCurrentPeriodInfo } from '../utils/commission';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType } from '../types';
 import {
@@ -107,6 +107,41 @@ export default function TeacherDashboard() {
         giftedLessons: existingStu.giftedLessons + giftedLessons,
       } as any);
     }
+    // 检查档位是否提升 → 自动补差价升级已有消课记录
+    const prevTier = getTierByRevenue(periodEnroll.reduce((s, e) => s + e.price, 0));
+    if (tier.tier > prevTier.tier) {
+      // 仅升级同周期内的已审核正式课
+      const samePeriodEnrollIds = enrollments
+        .filter(en => en.commissionPeriod === period.period)
+        .map(en => en.id);
+      const periodLessons = lessons.filter(l =>
+        samePeriodEnrollIds.includes(l.enrollmentId) &&
+        l.teacherId === teacherId &&
+        l.status === 'approved' && l.type === 'formal'
+      );
+      const { upgrades } = calcUpgradeForLessons(periodLessons, prevTier.rate, tier.rate, enrollments);
+      for (const up of upgrades) {
+        try {
+          const upgradeCol = collection(db, `lessons_${storeId}`);
+          await updateDoc(doc(upgradeCol, up.lessonId), {
+            commissionAmount: up.newAmount,
+            upgradedFrom: up.oldAmount,
+            upgradedAt: Date.now(),
+          } as any);
+        } catch {}
+      }
+      // 同步更新该周期内已有 enrollment 的 commissionRate（显示档位随周期动态提升）
+      for (const en of periodEnroll) {
+        try {
+          const enCol = collection(db, `enrollments_${storeId}`);
+          await updateDoc(doc(enCol, en.id), { commissionRate: tier.rate } as any);
+        } catch {}
+      }
+      if (upgrades.length > 0) {
+        console.log(`档位升级 ${prevTier.label}→${tier.label}，补差价${upgrades.length}条`);
+      }
+    }
+
     setAlertMsg(`${enrollForm.studentName} 报名成功！锁定${tier.label}`);
     setShowAddEnrollment(false);
     setEnrollForm({ studentId: '', studentName: '', course: '', price: '', formalLessons: '1', giftedLessons: '0', isUnlimited: false });
@@ -176,7 +211,14 @@ const daySchedules = schedules.filter(s => s.date === today);
       return;
     }
 
-    const lessonFee = isFormal ? calcLessonFee(enrollment.price, enrollment.commissionRate, enrollment.formalLessons) : 0;
+    // 根据该报名所在考核周期的总营收计算实际档位（周期内动态升级，跨周期后锁定）
+    const periodKey = enrollment.commissionPeriod;
+    const periodEnroll = enrollments.filter(en =>
+      en.teacherId === teacherId && en.commissionPeriod === periodKey
+    );
+    const periodTotalRev = periodEnroll.reduce((s, e) => s + e.price, 0);
+    const periodTier = getTierByRevenue(periodTotalRev);
+    const lessonFee = isFormal ? calcLessonFee(enrollment.price, periodTier.rate, enrollment.formalLessons) : 0;
 
     const lessonData: LessonRecord = {
       id: shortId(),
@@ -236,8 +278,15 @@ const daySchedules = schedules.filter(s => s.date === today);
     // 自动创建消课记录（正式课）
     const enrollment = enrollments.find(e => e.studentId === s.studentId && e.status === 'active');
     if (enrollment) {
+      // 根据该报名所在考核周期的总营收计算实际档位
+      const periodKey = enrollment.commissionPeriod;
+      const periodEnroll = enrollments.filter(en =>
+        en.teacherId === teacherId && en.commissionPeriod === periodKey
+      );
+      const periodTotalRev = periodEnroll.reduce((s, e) => s + e.price, 0);
+      const periodTier = getTierByRevenue(periodTotalRev);
       const lessonFee = enrollment.formalLessons > 0
-        ? calcLessonFee(enrollment.price, enrollment.commissionRate, enrollment.formalLessons) : 0;
+        ? calcLessonFee(enrollment.price, periodTier.rate, enrollment.formalLessons) : 0;
       const lessonData: LessonRecord = {
         id: shortId(),
         studentId: s.studentId,
@@ -269,7 +318,18 @@ const daySchedules = schedules.filter(s => s.date === today);
   );
   const periodRevenue = periodEnrollments.reduce((s, e) => s + e.price, 0);
   const tier = getTierByRevenue(periodRevenue);
-  const totalLessonCommission = periodLessons.reduce((s, l) => s + l.commissionAmount, 0);
+  // 实时重新计算课时费：基于各 lesson 所属 enrollment 的考核周期营收来确定档位
+  // （不依赖 Firestore 中存储的 commissionAmount，旧数据也会自动修正）
+  const totalLessonCommission = periodLessons.reduce((s, l) => {
+    if (l.type !== 'formal') return s;
+    const enrollment = enrollments.find(e => e.id === l.enrollmentId);
+    if (!enrollment || enrollment.formalLessons <= 0) return s;
+    const ePeriodTotal = enrollments
+      .filter(e => e.commissionPeriod === enrollment.commissionPeriod && e.teacherId === teacherId)
+      .reduce((sum, e) => sum + e.price, 0);
+    const eTier = getTierByRevenue(ePeriodTotal);
+    return s + calcLessonFee(enrollment.price, eTier.rate, enrollment.formalLessons);
+  }, 0);
   const estimatedCommission = totalLessonCommission;
   const estimatedSalary = store.baseSalary + estimatedCommission;
 
