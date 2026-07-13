@@ -319,7 +319,6 @@ const daySchedules = schedules.filter(s => s.date === today);
       for (const lesson of allLessons) {
         const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
         if (!enrollment || enrollment.formalLessons <= 0) continue;
-        // 计算 enrollment 所在周期的正确课时费
         const ePeriodTotal = enrollments
           .filter(e => e.commissionPeriod === enrollment.commissionPeriod && e.teacherId === teacherId)
           .reduce((s, e) => s + e.price, 0);
@@ -335,7 +334,23 @@ const daySchedules = schedules.filter(s => s.date === today);
           fixed++;
         }
       }
-      setAlertMsg(`修复完成！已更新 ${fixed} 条消课记录的课时费`);
+      // 再修复 enrollment 的 commissionRate 和 lessonsPerSession
+      const enCol = collection(db, `enrollments_${storeId}`);
+      const teacherEnrollments = enrollments.filter(e => e.teacherId === teacherId);
+      for (const en of teacherEnrollments) {
+        const ePeriodTotal = enrollments
+          .filter(e => e.commissionPeriod === en.commissionPeriod && e.teacherId === teacherId)
+          .reduce((s, e) => s + e.price, 0);
+        const eTier = getTierByRevenue(ePeriodTotal);
+        const correctFeePerSession = en.formalLessons > 0 ? (en.price * eTier.rate) / en.formalLessons : 0;
+        if (Math.abs(eTier.rate - en.commissionRate) > 0.001 || Math.abs(correctFeePerSession - en.lessonsPerSession) > 0.01) {
+          await updateDoc(doc(enCol, en.id), {
+            commissionRate: eTier.rate,
+            lessonsPerSession: correctFeePerSession,
+          } as any);
+        }
+      }
+      setAlertMsg(`✅ 修复完成！已更新 ${fixed} 条消课记录 + enrollment 费率`);
     } catch (e: any) {
       setAlertMsg('修复失败：' + (e.message || '未知错误'));
     } finally {
@@ -631,7 +646,10 @@ const daySchedules = schedules.filter(s => s.date === today);
                           <div className="mt-2 space-y-1">
                             {stuEnrollments.map(e => (
                               <div key={e.id} className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded inline-block mr-1">
-                                📅 {formatDateDisplay(e.enrollmentDate)} · {e.course} · 锁定{e.commissionRate * 100}%
+                                📅 {formatDateDisplay(e.enrollmentDate)} · {e.course} · 锁定{(() => {
+                                  const periodRev = enrollments.filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId).reduce((s, en) => s + en.price, 0);
+                                  return getTierByRevenue(periodRev).label;
+                                })()}
                                 {e.isUnlimited && <span className="ml-1 text-amber-500">[无限课时]</span>}
                               </div>
                             ))}

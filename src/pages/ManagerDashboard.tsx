@@ -1003,7 +1003,7 @@ export default function ManagerDashboard() {
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>{e.isUnlimited ? '无限课时' : '固定课时'}</span>
                           {e.status === 'completed' && <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded">已结课</span>}
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5">📅 {formatDateDisplay(e.enrollmentDate)} · ¥{e.price} · 锁定{e.commissionRate*100}% · {e.formalLessons}节正式+{e.giftedLessons}节赠送 · {teachers.find(t => t.id === e.teacherId)?.name}老师</div>
+                        <div className="text-xs text-slate-400 mt-0.5">📅 {formatDateDisplay(e.enrollmentDate)} · ¥{e.price} · 锁定{(() => { const periodRev = enrollments.filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === e.teacherId).reduce((s, en) => s + en.price, 0); return getTierByRevenue(periodRev).label; })()} · {e.formalLessons}节正式+{e.giftedLessons}节赠送 · {teachers.find(t => t.id === e.teacherId)?.name}老师</div>
                         {editEnrollment === e.id ? (
                           <div className="flex flex-wrap items-center gap-1 mt-1">
                             <input className="w-16 px-1.5 py-0.5 text-xs border rounded" value={editPrice} onChange={e2=>setEditPrice(e2.target.value)} placeholder="金额" />
