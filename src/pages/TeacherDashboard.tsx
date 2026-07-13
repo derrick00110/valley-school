@@ -36,6 +36,7 @@ export default function TeacherDashboard() {
 
   // Lesson state
   const [showDeduct, setShowDeduct] = useState<{ studentId: string; enrollmentId: string; studentName: string; course: string; type: LessonType } | null>(null);
+  const [isFixing, setIsFixing] = useState(false);
 
   // Alert
   const [alertMsg, setAlertMsg] = useState('');
@@ -304,6 +305,41 @@ const daySchedules = schedules.filter(s => s.date === today);
       const lessonCol = collection(db, `lessons_${storeId}`);
       await setDoc(doc(lessonCol, lessonData.id), lessonData);
       setAlertMsg(`已签到并创建消课记录`);
+    }
+  };
+
+
+  // ---- 修复历史课时费（将 Firestore 中旧数据更新为正确档位） ----
+  const fixHistoricalFees = async () => {
+    if (isFixing) return;
+    setIsFixing(true);
+    let fixed = 0;
+    try {
+      const allLessons = lessons.filter(l => l.teacherId === teacherId && l.type === 'formal' && l.status !== 'rejected');
+      for (const lesson of allLessons) {
+        const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
+        if (!enrollment || enrollment.formalLessons <= 0) continue;
+        // 计算 enrollment 所在周期的正确课时费
+        const ePeriodTotal = enrollments
+          .filter(e => e.commissionPeriod === enrollment.commissionPeriod && e.teacherId === teacherId)
+          .reduce((s, e) => s + e.price, 0);
+        const eTier = getTierByRevenue(ePeriodTotal);
+        const correctFee = calcLessonFee(enrollment.price, eTier.rate, enrollment.formalLessons);
+        if (Math.abs(correctFee - lesson.commissionAmount) > 0.01) {
+          const colRef = collection(db, `lessons_${storeId}`);
+          await updateDoc(doc(colRef, lesson.id), {
+            commissionAmount: correctFee,
+            upgradedFrom: lesson.commissionAmount,
+            upgradedAt: Date.now(),
+          } as any);
+          fixed++;
+        }
+      }
+      setAlertMsg(`修复完成！已更新 ${fixed} 条消课记录的课时费`);
+    } catch (e: any) {
+      setAlertMsg('修复失败：' + (e.message || '未知错误'));
+    } finally {
+      setIsFixing(false);
     }
   };
 
@@ -728,6 +764,11 @@ const daySchedules = schedules.filter(s => s.date === today);
                 <p className="text-[10px] text-slate-400 mt-1">* 最终以店长审核和15号结算为准</p>
               </div>
             </div>
+
+            <button onClick={fixHistoricalFees} disabled={isFixing}
+              className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+              {isFixing ? <><Loader2 size={14} className="animate-spin" /> 修复中...</> : <>🛠️ 修复历史课时费（更新为当前档位）</>}
+            </button>
 
             <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
               <div className="flex items-start gap-2">
