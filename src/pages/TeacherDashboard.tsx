@@ -586,7 +586,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                             if (enrolled.length === 0) return <span className="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">未报名</span>;
                             return enrolled.map(e => (
                               <span key={e.id} className={`text-[10px] px-1.5 py-0.5 rounded mr-1 ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                                {e.isUnlimited ? '♾️' : '📋'} {e.course}
+                                {e.isUnlimited ? '♾️' : '📋'} {e.course} <span className="opacity-60">({formatDateDisplay(e.enrollmentDate)})</span>
                               </span>
                             ));
                           })()}
@@ -595,7 +595,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                           <div className="mt-2 space-y-1">
                             {stuEnrollments.map(e => (
                               <div key={e.id} className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded inline-block mr-1">
-                                {e.course} · 锁定{e.commissionRate * 100}%
+                                📅 {formatDateDisplay(e.enrollmentDate)} · {e.course} · 锁定{e.commissionRate * 100}%
                                 {e.isUnlimited && <span className="ml-1 text-amber-500">[无限课时]</span>}
                               </div>
                             ))}
