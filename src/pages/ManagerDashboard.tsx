@@ -682,7 +682,18 @@ export default function ManagerDashboard() {
             </div>
             <div className="space-y-2">
               {lessons.filter(l => (storeFilter === 'all' || l.storeId === storeFilter) && (lessonFilter === 'all' || l.status === lessonFilter))
-                .sort((a, b) => b.createdAt - a.createdAt).map(l => (
+                .sort((a, b) => b.createdAt - a.createdAt).map(l => {
+                // 实时重算课时费（不依赖 Firestore 存储的旧数据）
+                const correctAmount = (() => {
+                  if (l.type !== 'formal') return 0;
+                  const en = enrollments.find(e => e.id === l.enrollmentId);
+                  if (!en || en.formalLessons <= 0) return 0;
+                  const eTotal = enrollments
+                    .filter(e => e.commissionPeriod === en.commissionPeriod && e.teacherId === l.teacherId)
+                    .reduce((s, e) => s + e.price, 0);
+                  return calcLessonFee(en.price, getTierByRevenue(eTotal).rate, en.formalLessons);
+                })();
+                return (
                 <div key={l.id} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
@@ -713,7 +724,7 @@ export default function ManagerDashboard() {
                     {l.status === 'rejected' && <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded">已拒绝</span>}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
 
             {/* 无限课时过半审核 */}

@@ -654,7 +654,18 @@ const daySchedules = schedules.filter(s => s.date === today);
                 <p className="text-sm">暂无消课记录</p>
               </div>
             ) : (
-              [...lessons].sort((a, b) => b.createdAt - a.createdAt).map(l => (
+              [...lessons].sort((a, b) => b.createdAt - a.createdAt).map(l => {
+                // 实时重算课时费（不依赖 Firestore 存储的旧数据）
+                const correctAmount = (() => {
+                  if (l.type !== 'formal') return 0;
+                  const en = enrollments.find(e => e.id === l.enrollmentId);
+                  if (!en || en.formalLessons <= 0) return 0;
+                  const eTotal = enrollments
+                    .filter(e => e.commissionPeriod === en.commissionPeriod && e.teacherId === teacherId)
+                    .reduce((s, e) => s + e.price, 0);
+                  return calcLessonFee(en.price, getTierByRevenue(eTotal).rate, en.formalLessons);
+                })();
+                return (
                 <div key={l.id} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
@@ -667,13 +678,13 @@ const daySchedules = schedules.filter(s => s.date === today);
                     <div className="text-xs text-slate-400 mt-0.5">{formatDateDisplay(l.date)}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {l.commissionAmount > 0 && <span className="text-xs text-indigo-600">+{formatMoney(l.commissionAmount)}</span>}
+                    {correctAmount > 0 && <span className="text-xs text-indigo-600">+{formatMoney(correctAmount)}</span>}
                     {l.status === 'pending' && <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded">待审核</span>}
                     {l.status === 'approved' && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded"><CheckCircle size={10} className="inline" /> 已通过</span>}
                     {l.status === 'rejected' && <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded"><XCircle size={10} className="inline" /> 已拒绝</span>}
                   </div>
                 </div>
-              ))
+              )})
             )}
           </div>
         )}
