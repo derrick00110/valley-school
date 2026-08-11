@@ -674,15 +674,16 @@ const daySchedules = schedules.filter(s => s.date === today);
                                 <Gift size={10} className="inline" /> 赠送消课
                               </button>
                             )}
-                            {e.isUnlimited && !e.unlimitedHalfApproved && (() => {
-                              // 根据实际的 half 提成记录判断状态（旧数据 halfRequested 无记录也允许重新提交）
+                            {e.isUnlimited && (() => {
+                              // 以实际提成记录为准判断状态（不受旧 unlimitedHalfApproved 脏数据影响）
                               const halfLesson = lessons.find(l => l.enrollmentId === e.id && l.type === 'half');
                               if (halfLesson && halfLesson.status === 'pending') {
                                 return <span className="text-[10px] bg-amber-100 text-amber-600 px-2 py-1 rounded">⏳ 过半申请审核中</span>;
                               }
                               if (halfLesson && halfLesson.status === 'approved') {
-                                return <span className="text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded">✅ 过半提成已通过</span>;
+                                return <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded">🎓 已结课</span>;
                               }
+                              // 无有效提成记录（含旧数据只设了 unlimitedHalfApproved 未生成记录）→ 可标记
                               return (
                                 <button onClick={async () => {
                                   if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
@@ -720,9 +721,6 @@ const daySchedules = schedules.filter(s => s.date === today);
                                 </button>
                               );
                             })()}
-                            {e.isUnlimited && e.unlimitedHalfApproved && (
-                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded">🎓 已结课</span>
-                            )}
                           </React.Fragment>
                         ))}
                         <button onClick={() => {
