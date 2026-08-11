@@ -353,7 +353,8 @@ export default function ManagerDashboard() {
       : storeEnroll;
     const storeRevenue = storeEnrollInPeriod.reduce((sum, e) => sum + e.price, 0);
     const pendingLessons = lessons.filter(l => l.storeId === s.id && l.status === 'pending').length;
-    return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons };
+    const pendingHalf = storeEnroll.filter(e => e.isUnlimited && e.halfRequested && !e.unlimitedHalfApproved).length;
+    return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons, pendingHalf };
   });
 
   // 工资计算
@@ -390,6 +391,7 @@ export default function ManagerDashboard() {
   ];
 
   const allPending = lessons.filter(l => l.status === 'pending');
+  const pendingHalfCount = enrollments.filter(e => e.isUnlimited && e.halfRequested && !e.unlimitedHalfApproved && (storeFilter === 'all' || e.storeId === storeFilter)).length;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -428,8 +430,8 @@ export default function ManagerDashboard() {
                   ${tab === n.key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                 <n.icon size={14} />
                 {n.label}
-                {n.key === 'finance' && allPending.length > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{allPending.length}</span>
+                {n.key === 'finance' && (allPending.length > 0 || pendingHalfCount > 0) && (
+                  <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{allPending.length + pendingHalfCount}</span>
                 )}
               </button>
             ))}
@@ -470,6 +472,12 @@ export default function ManagerDashboard() {
                     <div className="mt-3 bg-amber-50 rounded-xl p-2 flex items-center justify-between">
                       <span className="text-xs text-amber-700">待审核消课 <strong>{s.pendingLessons}</strong> 条</span>
                       <button onClick={() => setTab('finance')} className="text-xs text-amber-700 underline">去审核</button>
+                    </div>
+                  )}
+                  {s.pendingHalf > 0 && (
+                    <div className="mt-3 bg-rose-50 rounded-xl p-2 flex items-center justify-between">
+                      <span className="text-xs text-rose-700">待审核过半申请 <strong>{s.pendingHalf}</strong> 条</span>
+                      <button onClick={() => setTab('finance')} className="text-xs text-rose-700 underline">去审核</button>
                     </div>
                   )}
                 </div>

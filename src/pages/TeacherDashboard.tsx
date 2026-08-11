@@ -672,15 +672,22 @@ const daySchedules = schedules.filter(s => s.date === today);
                                 <Gift size={10} className="inline" /> 赠送消课
                               </button>
                             )}
-                            {e.isUnlimited && !e.unlimitedHalfApproved && (
+                            {e.isUnlimited && !e.unlimitedHalfApproved && !e.halfRequested && (
                               <button onClick={async () => {
-                                if (!db) return;
-                                const colRef = collection(db, `enrollments_${storeId}`);
-                                await updateDoc(doc(colRef, e.id), { halfRequested: true } as any);
-                                setAlertMsg(`已提交「${e.course}」过半申请，待店长审核`);
+                                if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
+                                try {
+                                  const colRef = collection(db, `enrollments_${storeId}`);
+                                  await updateDoc(doc(colRef, e.id), { halfRequested: true } as any);
+                                  setAlertMsg(`✅ 已提交「${e.course}」过半申请，待店长审核`);
+                                } catch (err: any) {
+                                  setAlertMsg(`❌ 提交失败：${err?.message || '请检查权限'}`);
+                                }
                               }} className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded hover:bg-amber-100">
                                 标记课程过半
                               </button>
+                            )}
+                            {e.isUnlimited && e.halfRequested && !e.unlimitedHalfApproved && (
+                              <span className="text-[10px] bg-amber-100 text-amber-600 px-2 py-1 rounded">⏳ 过半申请审核中</span>
                             )}
                           </React.Fragment>
                         ))}
