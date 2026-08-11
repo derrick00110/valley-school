@@ -51,6 +51,7 @@ export default function ManagerDashboard() {
   const [editGifted, setEditGifted] = useState('');
   const [editUnlimited, setEditUnlimited] = useState('false');
   const [lessonFilter, setLessonFilter] = useState('all');
+  const [courseFilter, setCourseFilter] = useState('all'); // all | unlimited | regular
 
   // Period
   const period = getCurrentPeriodInfo();
@@ -156,7 +157,17 @@ export default function ManagerDashboard() {
     try {
       const colRef = collection(db, `lessons_${s.id}`);
       await updateDoc(doc(colRef, lessonId), { status: 'approved', approvedBy: 'manager', approvedAt: Date.now() } as any);
-      // 同时扣学生课时
+      if (lesson.type === 'half') {
+        // 过半提成：同步确认 enrollment 过半（不扣课时）
+        const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
+        if (enrollment) {
+          const enCol = collection(db, `enrollments_${enrollment.storeId}`);
+          await updateDoc(doc(enCol, enrollment.id), { unlimitedHalfApproved: true } as any);
+        }
+        setToastMsg(`${lesson.studentName} 过半提成审核通过！`);
+        return;
+      }
+      // 正常消课：扣学生课时
       const stu = students.find(st => st.id === lesson.studentId);
       if (stu) {
         const stuCol = collection(db, `students_${s.id}`);
@@ -178,6 +189,16 @@ export default function ManagerDashboard() {
     try {
       const colRef = collection(db, `lessons_${s.id}`);
       await updateDoc(doc(colRef, lessonId), { status: 'rejected', approvedBy: 'manager', approvedAt: Date.now() } as any);
+      if (lesson.type === 'half') {
+        // 过半提成被拒：重置 enrollment，允许老师重新提交
+        const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
+        if (enrollment) {
+          const enCol = collection(db, `enrollments_${enrollment.storeId}`);
+          await updateDoc(doc(enCol, enrollment.id), { halfRequested: false } as any);
+        }
+        setToastMsg(`已拒绝 ${lesson.studentName} 的过半提成申请`);
+        return;
+      }
       setToastMsg(`已拒绝 ${lesson.studentName} 的消课记录`);
     } catch (e: any) { setToastMsg('拒绝失败：' + e.message); }
   };
@@ -356,7 +377,7 @@ export default function ManagerDashboard() {
       : storeEnroll;
     const storeRevenue = storeEnrollInPeriod.reduce((sum, e) => sum + e.price, 0);
     const pendingLessons = lessons.filter(l => l.storeId === s.id && l.status === 'pending').length;
-    const pendingHalf = storeEnroll.filter(e => e.isUnlimited && e.halfRequested && !e.unlimitedHalfApproved).length;
+    const pendingHalf = lessons.filter(l => l.storeId === s.id && l.type === 'half' && l.status === 'pending').length;
     return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons, pendingHalf };
   });
 
@@ -378,7 +399,7 @@ export default function ManagerDashboard() {
       const eTier = getTierByRevenue(ePeriodTotal);
       return s + calcLessonFee(enroll.price, eTier.rate, enroll.formalLessons);
     }, 0);
-    const halfCommissions = tEnrollments.filter(e => e.isUnlimited && e.unlimitedHalfApproved && (periodFilter === 'all' || e.commissionPeriod === period.period)).reduce((s, e) => s + calcUnlimitedHalfCommission(e.price, e.commissionRate), 0);
+    const halfCommissions = tLessons.filter(l => l.type === 'half').reduce((s, l) => s + (l.commissionAmount || 0), 0);
     const totalCommission = lessonCommissions + halfCommissions;
     const totalPayable = store.baseSalary + totalCommission;
     return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary: store.baseSalary, totalPayable, periodRevenue: periodRev, tier: tier.label, storeName: store.name };
@@ -394,7 +415,7 @@ export default function ManagerDashboard() {
   ];
 
   const allPending = lessons.filter(l => l.status === 'pending');
-  const pendingHalfCount = enrollments.filter(e => e.isUnlimited && e.halfRequested && !e.unlimitedHalfApproved && (storeFilter === 'all' || e.storeId === storeFilter)).length;
+  const pendingHalfCount = lessons.filter(l => l.type === 'half' && l.status === 'pending' && (storeFilter === 'all' || l.storeId === storeFilter)).length;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -682,9 +703,14 @@ export default function ManagerDashboard() {
               消课审核
               {allPending.length > 0 && <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">{allPending.length} 条待审核</span>}
             </h2>
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <select className="px-2 py-1 bg-slate-50 border rounded-lg text-xs outline-none" value={courseFilter} onChange={e => setCourseFilter(e.target.value)}>
+                <option value="all">全部课程</option>
+                <option value="unlimited">♾️ 无限课时（钢琴）</option>
+                <option value="regular">🎤 普通课程（声乐等）</option>
+              </select>
               <select className="px-2 py-1 bg-slate-50 border rounded-lg text-xs outline-none" value={lessonFilter} onChange={e => setLessonFilter(e.target.value)}>
-                <option value="all">全部</option>
+                <option value="all">全部状态</option>
                 <option value="pending">待审核</option>
                 <option value="approved">已通过</option>
                 <option value="rejected">已拒绝</option>
@@ -692,10 +718,20 @@ export default function ManagerDashboard() {
               <span className="text-xs text-slate-400">{lessons.filter(l => (storeFilter === 'all' || l.storeId === storeFilter)).length} 条</span>
             </div>
             <div className="space-y-2">
-              {lessons.filter(l => (storeFilter === 'all' || l.storeId === storeFilter) && (lessonFilter === 'all' || l.status === lessonFilter))
+              {lessons.filter(l => {
+                const matchStore = storeFilter === 'all' || l.storeId === storeFilter;
+                const matchStatus = lessonFilter === 'all' || l.status === lessonFilter;
+                // 判断是否无限课时课程（通过 enrollment 关联）
+                const en = enrollments.find(e => e.id === l.enrollmentId);
+                const isUnlimitedCourse = en ? en.isUnlimited === true : (l.course?.includes('钢琴') || false);
+                const matchCourse = courseFilter === 'all' || (courseFilter === 'unlimited' ? isUnlimitedCourse : !isUnlimitedCourse);
+                return matchStore && matchStatus && matchCourse;
+              })
                 .sort((a, b) => b.createdAt - a.createdAt).map(l => {
                 // 实时重算课时费（不依赖 Firestore 存储的旧数据）
                 const correctAmount = (() => {
+                  // 过半提成直接用记录金额
+                  if (l.type === 'half') return l.commissionAmount || 0;
                   if (l.type !== 'formal') return 0;
                   const en = enrollments.find(e => e.id === l.enrollmentId);
                   if (!en || en.formalLessons <= 0) return 0;
@@ -710,8 +746,8 @@ export default function ManagerDashboard() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{l.studentName}</span>
                       <span className="text-xs text-slate-400">{l.course}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                        {l.type === 'formal' ? '正式' : '赠送'}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : l.type === 'half' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                        {l.type === 'formal' ? '正式' : l.type === 'half' ? '过半提成' : '赠送'}
                       </span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
                         {getStore(l.storeId).shortName}
@@ -737,34 +773,6 @@ export default function ManagerDashboard() {
                 </div>
               )})}
             </div>
-
-            {/* 无限课时过半审核 */}
-            <h3 className="font-bold text-sm mt-6 mb-3">无限课时过半审核</h3>
-            {enrollments.filter(e => e.isUnlimited && !e.unlimitedHalfApproved && e.halfRequested && (storeFilter === 'all' || e.storeId === storeFilter)).length === 0 ? (
-              <p className="text-xs text-slate-400">暂无待审核的过半申请</p>
-            ) : (
-              enrollments.filter(e => e.isUnlimited && !e.unlimitedHalfApproved && e.halfRequested && (storeFilter === 'all' || e.storeId === storeFilter)).map(e => (
-                <div key={e.id} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center justify-between mb-2">
-                  <div>
-                    <span className="font-medium text-sm">{e.studentName}</span>
-                    <span className="text-xs text-slate-400 ml-2">{e.course} · {teachers.find(t => t.id === e.teacherId)?.name}老师</span>
-                  </div>
-                  <button onClick={() => handleApproveHalf(e.id)}
-                    className="text-xs bg-amber-50 text-amber-600 px-3 py-1.5 rounded-lg hover:bg-amber-100">
-                    确认过半（发{formatMoney(calcUnlimitedHalfCommission(e.price, e.commissionRate))}）
-                  </button>
-                  <button onClick={async () => {
-                    try {
-                      const colRef = collection(db, `enrollments_${e.storeId}`);
-                      await updateDoc(doc(colRef, e.id), { halfRequested: false } as any);
-                      setToastMsg(`已拒绝 ${e.studentName} 的过半申请`);
-                    } catch(err) { setToastMsg('操作失败'); }
-                  }} className="text-xs bg-red-50 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-100">
-                    拒绝
-                  </button>
-                </div>
-              ))
-            )}
           </div>
         )}
 
@@ -1046,8 +1054,8 @@ export default function ManagerDashboard() {
                 {stuLessons.sort((a,b) => b.createdAt - a.createdAt).map(l => (
                   <div key={l.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-slate-50 rounded">
                     <span>{l.course} · {l.date}</span>
-                    <span className={`px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                      {l.type === 'formal' ? '正式' : '赠送'}
+                    <span className={`px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : l.type === 'half' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {l.type === 'formal' ? '正式' : l.type === 'half' ? '过半提成' : '赠送'}
                     </span>
                     <span className={`${l.status === 'approved' ? 'text-green-600' : l.status === 'pending' ? 'text-amber-600' : 'text-red-600'}`}>
                       {l.status === 'approved' ? '已通过' : l.status === 'pending' ? '待审核' : '已拒绝'}

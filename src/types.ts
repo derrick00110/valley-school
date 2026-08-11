@@ -2,7 +2,7 @@
 
 export type StoreId = 'dongguan' | 'chebei';
 export type UserRole = 'teacher' | 'manager';
-export type LessonType = 'formal' | 'gifted';
+export type LessonType = 'formal' | 'gifted' | 'half'; // half = 无限课时过半提成
 export type LessonStatus = 'pending' | 'approved' | 'rejected';
 export type CourseType = 'fixed' | 'unlimited'; // 固定课时 / 无限课时(钢琴)
 

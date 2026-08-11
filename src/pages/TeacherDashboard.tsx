@@ -372,6 +372,8 @@ const daySchedules = schedules.filter(s => s.date === today);
   // 实时重新计算课时费：基于各 lesson 所属 enrollment 的考核周期营收来确定档位
   // （不依赖 Firestore 中存储的 commissionAmount，旧数据也会自动修正）
   const totalLessonCommission = periodLessons.reduce((s, l) => {
+    // 过半提成直接用记录金额（price * rate * 0.5）
+    if (l.type === 'half') return s + (l.commissionAmount || 0);
     if (l.type !== 'formal') return s;
     const enrollment = enrollments.find(e => e.id === l.enrollmentId);
     if (!enrollment || enrollment.formalLessons <= 0) return s;
@@ -676,9 +678,31 @@ const daySchedules = schedules.filter(s => s.date === today);
                               <button onClick={async () => {
                                 if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
                                 try {
+                                  // 用 enrollment 所在周期的当前档位计算过半提成
+                                  const ePeriodTotal = enrollments
+                                    .filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId)
+                                    .reduce((s, en) => s + en.price, 0);
+                                  const eTier = getTierByRevenue(ePeriodTotal);
+                                  const halfAmount = calcUnlimitedHalfCommission(e.price, eTier.rate);
+                                  // 创建过半提成记录（进入消课审核流程）
+                                  const halfLesson: LessonRecord = {
+                                    id: shortId(),
+                                    studentId: e.studentId,
+                                    studentName: e.studentName,
+                                    enrollmentId: e.id,
+                                    course: e.course,
+                                    teacherId, storeId,
+                                    date: formatDate(new Date()),
+                                    type: 'half',
+                                    commissionAmount: halfAmount,
+                                    status: 'pending',
+                                    createdAt: Date.now(),
+                                  };
+                                  await setDoc(doc(collection(db, `lessons_${storeId}`), halfLesson.id), halfLesson);
+                                  // 标记申请中，防止重复提交
                                   const colRef = collection(db, `enrollments_${storeId}`);
                                   await updateDoc(doc(colRef, e.id), { halfRequested: true } as any);
-                                  setAlertMsg(`✅ 已提交「${e.course}」过半申请，待店长审核`);
+                                  setAlertMsg(`✅ 已提交「${e.course}」过半提成 ${formatMoney(halfAmount)}，待店长审核`);
                                 } catch (err: any) {
                                   setAlertMsg(`❌ 提交失败：${err?.message || '请检查权限'}`);
                                 }
@@ -718,6 +742,8 @@ const daySchedules = schedules.filter(s => s.date === today);
               [...lessons].sort((a, b) => b.createdAt - a.createdAt).map(l => {
                 // 实时重算课时费（不依赖 Firestore 存储的旧数据）
                 const correctAmount = (() => {
+                  // 过半提成直接用记录金额
+                  if (l.type === 'half') return l.commissionAmount || 0;
                   if (l.type !== 'formal') return 0;
                   const en = enrollments.find(e => e.id === l.enrollmentId);
                   if (!en || en.formalLessons <= 0) return 0;
@@ -732,8 +758,8 @@ const daySchedules = schedules.filter(s => s.date === today);
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{l.studentName}</span>
                       <span className="text-xs text-slate-400">{l.course}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                        {l.type === 'formal' ? '正式' : '赠送'}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : l.type === 'half' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                        {l.type === 'formal' ? '正式' : l.type === 'half' ? '过半提成' : '赠送'}
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">{formatDateDisplay(l.date)}</div>
