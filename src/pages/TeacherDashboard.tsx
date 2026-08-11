@@ -674,44 +674,54 @@ const daySchedules = schedules.filter(s => s.date === today);
                                 <Gift size={10} className="inline" /> 赠送消课
                               </button>
                             )}
-                            {e.isUnlimited && !e.unlimitedHalfApproved && !e.halfRequested && (
-                              <button onClick={async () => {
-                                if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
-                                try {
-                                  // 用 enrollment 所在周期的当前档位计算过半提成
-                                  const ePeriodTotal = enrollments
-                                    .filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId)
-                                    .reduce((s, en) => s + en.price, 0);
-                                  const eTier = getTierByRevenue(ePeriodTotal);
-                                  const halfAmount = calcUnlimitedHalfCommission(e.price, eTier.rate);
-                                  // 创建过半提成记录（进入消课审核流程）
-                                  const halfLesson: LessonRecord = {
-                                    id: shortId(),
-                                    studentId: e.studentId,
-                                    studentName: e.studentName,
-                                    enrollmentId: e.id,
-                                    course: e.course,
-                                    teacherId, storeId,
-                                    date: formatDate(new Date()),
-                                    type: 'half',
-                                    commissionAmount: halfAmount,
-                                    status: 'pending',
-                                    createdAt: Date.now(),
-                                  };
-                                  await setDoc(doc(collection(db, `lessons_${storeId}`), halfLesson.id), halfLesson);
-                                  // 标记申请中，防止重复提交
-                                  const colRef = collection(db, `enrollments_${storeId}`);
-                                  await updateDoc(doc(colRef, e.id), { halfRequested: true } as any);
-                                  setAlertMsg(`✅ 已提交「${e.course}」过半提成 ${formatMoney(halfAmount)}，待店长审核`);
-                                } catch (err: any) {
-                                  setAlertMsg(`❌ 提交失败：${err?.message || '请检查权限'}`);
-                                }
-                              }} className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded hover:bg-amber-100">
-                                标记课程过半
-                              </button>
-                            )}
-                            {e.isUnlimited && e.halfRequested && !e.unlimitedHalfApproved && (
-                              <span className="text-[10px] bg-amber-100 text-amber-600 px-2 py-1 rounded">⏳ 过半申请审核中</span>
+                            {e.isUnlimited && !e.unlimitedHalfApproved && (() => {
+                              // 根据实际的 half 提成记录判断状态（旧数据 halfRequested 无记录也允许重新提交）
+                              const halfLesson = lessons.find(l => l.enrollmentId === e.id && l.type === 'half');
+                              if (halfLesson && halfLesson.status === 'pending') {
+                                return <span className="text-[10px] bg-amber-100 text-amber-600 px-2 py-1 rounded">⏳ 过半申请审核中</span>;
+                              }
+                              if (halfLesson && halfLesson.status === 'approved') {
+                                return <span className="text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded">✅ 过半提成已通过</span>;
+                              }
+                              return (
+                                <button onClick={async () => {
+                                  if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
+                                  try {
+                                    // 用 enrollment 所在周期的当前档位计算过半提成
+                                    const ePeriodTotal = enrollments
+                                      .filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId)
+                                      .reduce((s, en) => s + en.price, 0);
+                                    const eTier = getTierByRevenue(ePeriodTotal);
+                                    const halfAmount = calcUnlimitedHalfCommission(e.price, eTier.rate);
+                                    // 创建过半提成记录（进入消课审核流程）
+                                    const halfLesson: LessonRecord = {
+                                      id: shortId(),
+                                      studentId: e.studentId,
+                                      studentName: e.studentName,
+                                      enrollmentId: e.id,
+                                      course: e.course,
+                                      teacherId, storeId,
+                                      date: formatDate(new Date()),
+                                      type: 'half',
+                                      commissionAmount: halfAmount,
+                                      status: 'pending',
+                                      createdAt: Date.now(),
+                                    };
+                                    await setDoc(doc(collection(db, `lessons_${storeId}`), halfLesson.id), halfLesson);
+                                    // 标记申请中，防止重复提交
+                                    const colRef = collection(db, `enrollments_${storeId}`);
+                                    await updateDoc(doc(colRef, e.id), { halfRequested: true } as any);
+                                    setAlertMsg(`✅ 已提交「${e.course}」过半提成 ${formatMoney(halfAmount)}，待店长审核`);
+                                  } catch (err: any) {
+                                    setAlertMsg(`❌ 提交失败：${err?.message || '请检查权限'}`);
+                                  }
+                                }} className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded hover:bg-amber-100">
+                                  标记课程过半
+                                </button>
+                              );
+                            })()}
+                            {e.isUnlimited && e.unlimitedHalfApproved && (
+                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded">🎓 已结课</span>
                             )}
                           </React.Fragment>
                         ))}

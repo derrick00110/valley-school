@@ -158,13 +158,17 @@ export default function ManagerDashboard() {
       const colRef = collection(db, `lessons_${s.id}`);
       await updateDoc(doc(colRef, lessonId), { status: 'approved', approvedBy: 'manager', approvedAt: Date.now() } as any);
       if (lesson.type === 'half') {
-        // 过半提成：同步确认 enrollment 过半（不扣课时）
+        // 过半提成通过：确认过半 + 标记课程已结课
         const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
         if (enrollment) {
           const enCol = collection(db, `enrollments_${enrollment.storeId}`);
-          await updateDoc(doc(enCol, enrollment.id), { unlimitedHalfApproved: true } as any);
+          await updateDoc(doc(enCol, enrollment.id), {
+            unlimitedHalfApproved: true,
+            status: 'completed',
+            halfRequested: false,
+          } as any);
         }
-        setToastMsg(`${lesson.studentName} 过半提成审核通过！`);
+        setToastMsg(`${lesson.studentName} 过半提成通过，课程已结课！`);
         return;
       }
       // 正常消课：扣学生课时
