@@ -70,7 +70,7 @@ export default function ManagerDashboard() {
 
     const unsubs: (() => void)[] = [unsubTeachers];
 
-    // 合并两个店的数据到统一数组
+    // 合并两个店的数据到统一数组（key 用 storeId_docId 避免跨店同 id 覆盖）
     const allStudents = new Map<string, Student>();
     const allEnrollments = new Map<string, Enrollment>();
     const allLessons = new Map<string, LessonRecord>();
@@ -80,10 +80,11 @@ export default function ManagerDashboard() {
         try {
           snap.docChanges().forEach(change => {
             const d = change.doc;
+            const key = `${s.id}_${d.id}`;
             if (change.type === 'removed') {
-              allStudents.delete(d.id);
+              allStudents.delete(key);
             } else {
-              allStudents.set(d.id, { id: d.id, ...d.data() } as Student);
+              allStudents.set(key, { id: d.id, storeId: s.id, ...d.data() } as Student);
             }
           });
           setStudents(Array.from(allStudents.values()));
@@ -94,10 +95,11 @@ export default function ManagerDashboard() {
         try {
           snap.docChanges().forEach(change => {
             const d = change.doc;
+            const key = `${s.id}_${d.id}`;
             if (change.type === 'removed') {
-              allEnrollments.delete(d.id);
+              allEnrollments.delete(key);
             } else {
-              allEnrollments.set(d.id, { id: d.id, ...d.data() } as Enrollment);
+              allEnrollments.set(key, { id: d.id, storeId: s.id, ...d.data() } as Enrollment);
             }
           });
           setEnrollments(Array.from(allEnrollments.values()));
@@ -108,10 +110,11 @@ export default function ManagerDashboard() {
         try {
           snap.docChanges().forEach(change => {
             const d = change.doc;
+            const key = `${s.id}_${d.id}`;
             if (change.type === 'removed') {
-              allLessons.delete(d.id);
+              allLessons.delete(key);
             } else {
-              allLessons.set(d.id, { id: d.id, ...d.data() } as LessonRecord);
+              allLessons.set(key, { id: d.id, storeId: s.id, ...d.data() } as LessonRecord);
             }
           });
           setLessons(Array.from(allLessons.values()));
