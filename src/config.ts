@@ -1,8 +1,8 @@
 // ===================== 门店和提成配置 =====================
 
 export const STORES = [
-  { id: 'dongguan', name: '东莞总店', shortName: '东莞', baseSalary: 0, color: 'indigo' },
-  { id: 'chebei', name: '广州车陂店', shortName: '车陂', baseSalary: 4000, color: 'emerald' },
+  { id: 'dongguan', name: '东莞总店', shortName: '东莞', baseSalary: 0, socialInsurance: 0, color: 'indigo' },
+  { id: 'chebei', name: '广州车陂店', shortName: '车陂', baseSalary: 2000, socialInsurance: 570.84, color: 'emerald' },
 ] as const;
 
 export const STORE_MAP = Object.fromEntries(STORES.map(s => [s.id, s]));

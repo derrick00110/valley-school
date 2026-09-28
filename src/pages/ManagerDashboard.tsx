@@ -405,8 +405,9 @@ export default function ManagerDashboard() {
     }, 0);
     const halfCommissions = tLessons.filter(l => l.type === 'half').reduce((s, l) => s + (l.commissionAmount || 0), 0);
     const totalCommission = lessonCommissions + halfCommissions;
-    const totalPayable = store.baseSalary + totalCommission;
-    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary: store.baseSalary, totalPayable, periodRevenue: periodRev, tier: tier.label, storeName: store.name };
+    const socialInsurance = store.socialInsurance || 0;
+    const totalPayable = store.baseSalary + totalCommission - socialInsurance;
+    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary: store.baseSalary, socialInsurance, totalPayable, periodRevenue: periodRev, tier: tier.label, storeName: store.name };
   });
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
@@ -836,7 +837,7 @@ export default function ManagerDashboard() {
                       <div className="text-[10px] text-slate-400">应发</div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center text-xs">
                     <div className="bg-slate-50 rounded-lg py-2">
                       <div className="text-slate-500">底薪</div>
                       <div className="font-medium">{formatMoney(t.baseSalary)}</div>
@@ -848,6 +849,10 @@ export default function ManagerDashboard() {
                     <div className="bg-slate-50 rounded-lg py-2">
                       <div className="text-slate-500">过半提成</div>
                       <div className="font-medium text-amber-600">{formatMoney(t.halfCommissions)}</div>
+                    </div>
+                    <div className="bg-rose-50 rounded-lg py-2">
+                      <div className="text-rose-500">社保（自付）</div>
+                      <div className="font-medium text-rose-600">-{formatMoney(t.socialInsurance)}</div>
                     </div>
                   </div>
                 </div>

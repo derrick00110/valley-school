@@ -384,7 +384,8 @@ const daySchedules = schedules.filter(s => s.date === today);
     return s + calcLessonFee(enrollment.price, eTier.rate, enrollment.formalLessons);
   }, 0);
   const estimatedCommission = totalLessonCommission;
-  const estimatedSalary = store.baseSalary + estimatedCommission;
+  const socialInsurance = store.socialInsurance || 0;
+  const estimatedSalary = store.baseSalary + estimatedCommission - socialInsurance;
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
     { key: 'schedule', label: '我的排课', icon: Calendar },
@@ -815,6 +816,12 @@ const daySchedules = schedules.filter(s => s.date === today);
                   <span className="text-slate-500">课时提成（已审核/{periodLessons.length}节）</span>
                   <span className="font-medium text-indigo-600">{formatMoney(estimatedCommission)}</span>
                 </div>
+                {socialInsurance > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500">社保（员工自付）</span>
+                    <span className="font-medium text-red-500">-{formatMoney(socialInsurance)}</span>
+                  </div>
+                )}
                 <hr className="border-slate-100" />
                 <div className="flex items-center justify-between text-sm font-bold">
                   <span>预估应发</span>
@@ -836,7 +843,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                   <p className="text-xs font-medium text-amber-700">温馨提示</p>
                   <p className="text-xs text-amber-600 mt-1">
                     当月营业额决定报名学生的提成锁率。消课记录需店长审核通过后才计入工资。
-                    {store.baseSalary > 0 && ` 含底薪${formatMoney(store.baseSalary)}。`}
+                    {store.baseSalary > 0 && ` 含底薪${formatMoney(store.baseSalary)}${socialInsurance > 0 ? `，扣除社保${formatMoney(socialInsurance)}` : ''}。`}
                   </p>
                 </div>
               </div>

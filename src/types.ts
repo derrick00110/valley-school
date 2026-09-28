@@ -11,6 +11,7 @@ export interface Store {
   name: string;
   shortName: string;
   baseSalary: number; // 底薪，0表示无
+  socialInsurance: number; // 社保（员工自付，每月）
   color: string;
 }
 
