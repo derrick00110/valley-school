@@ -7,12 +7,13 @@ import { STORES, getStore } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, getTierByRevenue, getCurrentPeriodInfo, formatMoney } from '../utils/commission';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment } from '../types';
+import DataBoard from '../components/DataBoard';
 import {
   Music, Users, BookOpen, DollarSign, LogOut, CheckCircle, XCircle, Plus, Trash2,
-  Calendar, Clock, Search, Filter, Building2, ShieldCheck, Loader2, AlertCircle, Gift, Download
+  Calendar, Clock, Search, Filter, Building2, ShieldCheck, Loader2, AlertCircle, Gift, Download, BarChart3
 } from 'lucide-react';
 
-type Tab = 'overview' | 'teachers' | 'students' | 'schedule' | 'finance' | 'salary';
+type Tab = 'overview' | 'board' | 'teachers' | 'students' | 'schedule' | 'finance' | 'salary';
 
 export default function ManagerDashboard() {
   const { user, logout } = useAuth();
@@ -412,6 +413,7 @@ export default function ManagerDashboard() {
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
     { key: 'overview', label: '总览', icon: ShieldCheck },
+    { key: 'board', label: '数据看板', icon: BarChart3 },
     { key: 'teachers', label: '老师管理', icon: Users },
     { key: 'students', label: '学生档案', icon: BookOpen },
     { key: 'schedule', label: '排课总览', icon: Calendar },
@@ -432,12 +434,14 @@ export default function ManagerDashboard() {
               <ShieldCheck size={20} className="text-indigo-600" />
               <span className="font-bold text-sm">店长管理端</span>
               <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{period.label}</span>
-              <button
-                onClick={() => setPeriodFilter(periodFilter === 'current' ? 'all' : 'current')}
-                className={`text-xs px-2 py-0.5 rounded font-medium ${periodFilter === 'current' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'}`}
-              >
-                {periodFilter === 'current' ? '当前周期' : '全部数据'}
-              </button>
+              {tab !== 'board' && (
+                <button
+                  onClick={() => setPeriodFilter(periodFilter === 'current' ? 'all' : 'current')}
+                  className={`text-xs px-2 py-0.5 rounded font-medium ${periodFilter === 'current' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'}`}
+                >
+                  {periodFilter === 'current' ? '当前周期' : '全部数据'}
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-3">
               {/* 门店筛选 */}
@@ -779,6 +783,17 @@ export default function ManagerDashboard() {
               )})}
             </div>
           </div>
+        )}
+
+        {/* ========== 数据看板（只读） ========== */}
+        {tab === 'board' && (
+          <DataBoard
+            teachers={teachers}
+            enrollments={enrollments}
+            lessons={lessons}
+            storeFilter={storeFilter}
+            onStoreFilter={setStoreFilter}
+          />
         )}
 
         {/* ========== 薪资结算 ========== */}

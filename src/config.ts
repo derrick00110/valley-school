@@ -74,10 +74,22 @@ export function getCurrentPeriod(): { period: string; start: string; end: string
  * 判断某个日期属于哪个考核周期
  */
 export function getPeriodForDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const year = d.getFullYear();
-  const month = d.getMonth() + 1;
-  const day = d.getDate();
+  // 用日期字符串本身切分，避免 new Date('YYYY-MM-DD') 在西时区把日子减一天。
+  // 规则与 getCurrentPeriod 相同：15 日（含）起算入本月周期，15 日之前算入上月周期。
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr || '');
+  let year: number;
+  let month: number;
+  let day: number;
+  if (match) {
+    year = Number(match[1]);
+    month = Number(match[2]);
+    day = Number(match[3]);
+  } else {
+    const d = new Date(dateStr);
+    year = d.getFullYear();
+    month = d.getMonth() + 1;
+    day = d.getDate();
+  }
 
   if (day >= 15) {
     return `${year}-${String(month).padStart(2, '0')}`;
