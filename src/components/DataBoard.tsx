@@ -242,7 +242,12 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
                 <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-400">该门店还没有老师</td></tr>
               ) : report.teachers.map(row => (
                 <tr key={row.teacherId} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{row.teacherName}</td>
+                  <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">
+                    {row.teacherName}
+                    {row.partTimeRate != null && (
+                      <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700">兼职{Math.round(row.partTimeRate * 100)}%</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2"><StoreBadge storeId={row.storeId} name={row.storeName} /></td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.revenue)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-indigo-700">{formatMoney(row.lessonCommission)}</td>
@@ -261,7 +266,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-slate-700">老师 × 周期明细</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">本期档位由该周期报名营业额决定；课时费按每条消课所属报名的周期档位计算</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">全职档位由该周期报名营业额决定；兼职按固定比例，不随营业额改档</p>
           </div>
           <button
             type="button"
@@ -301,7 +306,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
       <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-800 space-y-1.5">
         <p className="font-medium">工资口径（与老师端预估工资一致）</p>
         <p>应发 = 底薪 + 已审核正式课课时提成 + 已审核过半提成 − 社保。车陂店每个周期底薪 ¥2,000.00、社保自付 ¥570.84；东莞总店无底薪、无社保。</p>
-        <p>课时提成 = 报名学费 × 该报名所属周期营业额档位 ÷ 正式课时。不满 4 万为 20%，4 万至不满 5 万为 30%，5 万及以上为 40%。15 日当天起算新周期，每条消课只计入上课日期所在的那一个周期。</p>
+        <p>课时提成 = 报名学费 × 该报名所属周期营业额档位 ÷ 正式课时。不满 4 万为 20%，4 万至不满 5 万为 30%，5 万及以上为 40%。兼职老师锁定个人固定比例（如 40%），课时和过半提成都按这个比例，不会被改成较低档。15 日当天起算新周期，每条消课只计入上课日期所在的那一个周期。</p>
         <p>待审核、已拒绝和赠送课不计入。看板只读取数据，不会审核、改价或结算。</p>
         {report.skippedFormalLessons > 0 && (
           <p>有 {report.skippedFormalLessons} 条已审核正式课缺少报名记录或正式课时为 0，未计入工资。</p>

@@ -13,11 +13,13 @@
 // （不使用消课记录上可能过期的 commissionAmount）：
 //   round(学费 price × 档位比例 / 正式课时, 2)
 // 档位：营业额 [0, 40000) → 20%，[40000, 50000) → 30%，[50000, ∞) → 40%。
-// 过半提成用已审核记录上的金额（与老师端一致）。赠送课、待审核、已拒绝不计。
+// 兼职老师若 employmentType 为 parttime 且 fixedCommissionRate 有效，则锁定该比例，
+// 不随周期营业额改档；过半提成同样按该比例重算。
+// 全职的过半提成仍用已审核记录上的金额（与老师端一致）。赠送课、待审核、已拒绝不计。
 
 import type { Enrollment, LessonRecord, StoreId, Teacher } from '../types';
 import { STORES, getPeriodForDate, getStore } from '../config';
-import { calcLessonFee, getCurrentPeriodInfo, getTierByRevenue } from './commission';
+import { calcLessonFee, calcUnlimitedHalfCommission, fixedCommissionRateOf, getCurrentPeriodInfo, resolveTeacherCommission } from './commission';
 
 export type StoreFilter = 'all' | StoreId;
 
@@ -103,6 +105,8 @@ export interface TeacherPeriodRow {
   revenue: number;
   tierLabel: string;
   tierRate: number;
+  /** 兼职固定提成；全职为 null */
+  partTimeRate: number | null;
   formalLessons: number;
   lessonCommission: number;
   halfCommission: number;
@@ -127,6 +131,7 @@ export interface TeacherTotal {
   teacherName: string;
   storeId: string;
   storeName: string;
+  partTimeRate: number | null;
   revenue: number;
   lessonCommission: number;
   halfCommission: number;
@@ -155,23 +160,29 @@ function lessonPay(
   lesson: LessonRecord,
   enrollmentById: Map<string, Enrollment>,
   revenueByTeacherPeriod: Map<string, number>,
+  teacherById: Map<string, Teacher>,
 ): { lesson: number; half: number; formal: number; skipped: boolean } {
+  const teacher = teacherById.get(lesson.teacherId);
+  const enrollment = enrollmentById.get(lesson.enrollmentId);
   if (lesson.type === 'half') {
-    return { lesson: 0, half: Number(lesson.commissionAmount) || 0, formal: 0, skipped: false };
+    const fixedRate = fixedCommissionRateOf(teacher);
+    const half = fixedRate != null && enrollment
+      ? calcUnlimitedHalfCommission(Number(enrollment.price) || 0, fixedRate)
+      : Number(lesson.commissionAmount) || 0;
+    return { lesson: 0, half, formal: 0, skipped: false };
   }
   if (lesson.type !== 'formal') {
     return { lesson: 0, half: 0, formal: 0, skipped: false };
   }
-  const enrollment = enrollmentById.get(lesson.enrollmentId);
   const formalLessons = Number(enrollment?.formalLessons) || 0;
   if (!enrollment || formalLessons <= 0) {
     return { lesson: 0, half: 0, formal: 1, skipped: true };
   }
   const period = periodOfEnrollment(enrollment);
   const revenue = period ? revenueByTeacherPeriod.get(`${lesson.teacherId}::${period}`) || 0 : 0;
-  const tier = getTierByRevenue(revenue);
+  const quote = resolveTeacherCommission(teacher, revenue);
   return {
-    lesson: calcLessonFee(Number(enrollment.price) || 0, tier.rate, formalLessons),
+    lesson: calcLessonFee(Number(enrollment.price) || 0, quote.rate, formalLessons),
     half: 0,
     formal: 1,
     skipped: false,
@@ -213,6 +224,7 @@ export function buildPayrollReport(input: {
   }
 
   const enrollmentById = new Map(enrollments.map(enrollment => [enrollment.id, enrollment]));
+  const teacherById = new Map(teachers.map(teacher => [teacher.id, teacher]));
   const lessonsByTeacherPeriod = new Map<string, LessonRecord[]>();
   let orphanApprovedLessons = 0;
   for (const lesson of lessons) {
@@ -236,13 +248,14 @@ export function buildPayrollReport(input: {
     for (const teacher of teachers) {
       const store = getStore(teacher.storeId);
       const revenue = roundMoney(revenueByTeacherPeriod.get(`${teacher.id}::${period}`) || 0);
-      const tier = getTierByRevenue(revenue);
+      const quote = resolveTeacherCommission(teacher, revenue);
+      const partTimeRate = fixedCommissionRateOf(teacher);
       const bucket = lessonsByTeacherPeriod.get(`${teacher.id}::${period}`) || [];
       let lessonCommission = 0;
       let halfCommission = 0;
       let formalLessons = 0;
       for (const lesson of bucket) {
-        const pay = lessonPay(lesson, enrollmentById, revenueByTeacherPeriod);
+        const pay = lessonPay(lesson, enrollmentById, revenueByTeacherPeriod, teacherById);
         lessonCommission += pay.lesson;
         halfCommission += pay.half;
         formalLessons += pay.formal;
@@ -261,8 +274,9 @@ export function buildPayrollReport(input: {
         period,
         periodLabel: periodLabel(period),
         revenue,
-        tierLabel: revenue > 0 ? tier.label : '—',
-        tierRate: revenue > 0 ? tier.rate : 0,
+        tierLabel: quote.fixed ? `兼职${quote.label}` : (revenue > 0 ? quote.label : '—'),
+        tierRate: quote.fixed ? quote.rate : (revenue > 0 ? quote.rate : 0),
+        partTimeRate,
         formalLessons,
         lessonCommission,
         halfCommission,
@@ -296,6 +310,7 @@ export function buildPayrollReport(input: {
       teacherName: teacher.name,
       storeId: teacher.storeId,
       storeName: store.name,
+      partTimeRate: fixedCommissionRateOf(teacher),
       revenue: roundMoney(rows.reduce((sum, row) => sum + row.revenue, 0)),
       lessonCommission: roundMoney(rows.reduce((sum, row) => sum + row.lessonCommission, 0)),
       halfCommission: roundMoney(rows.reduce((sum, row) => sum + row.halfCommission, 0)),

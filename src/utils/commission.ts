@@ -21,11 +21,59 @@ export const COMMISSION_TIERS = [
 /**
  * 根据营业额返回当前档位信息
  */
-export function getTierByRevenue(revenue: number) {
+export interface CommissionQuote {
+  tier: number;
+  rate: number;
+  label: string;
+  /** 兼职老师锁定比例，不随周期营业额升降 */
+  fixed: boolean;
+}
+
+export function formatRateLabel(rate: number): string {
+  const pct = Math.round(rate * 1000) / 10;
+  return `${pct}%`;
+}
+
+export function getTierByRevenue(revenue: number): CommissionQuote {
   for (const t of COMMISSION_TIERS) {
-    if (revenue >= t.min && revenue < t.max) return t;
+    if (revenue >= t.min && revenue < t.max) {
+      return { tier: t.tier, rate: t.rate, label: t.label, fixed: false };
+    }
   }
-  return COMMISSION_TIERS[0];
+  const fallback = COMMISSION_TIERS[0];
+  return { tier: fallback.tier, rate: fallback.rate, label: fallback.label, fixed: false };
+}
+
+/**
+ * 兼职且写了 fixedCommissionRate（0–1] 时返回该比例，否则返回 null，继续走营业额分档。
+ */
+export function fixedCommissionRateOf(
+  teacher: { employmentType?: string | null; fixedCommissionRate?: number | null } | null | undefined,
+): number | null {
+  if (!teacher || teacher.employmentType !== 'parttime') return null;
+  const rate = Number(teacher.fixedCommissionRate);
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 1) return null;
+  return rate;
+}
+
+/**
+ * 老师在某一周期营业额下的提成比例。
+ * 兼职固定比例优先，并且不会被档位重写。
+ */
+export function resolveTeacherCommission(
+  teacher: { employmentType?: string | null; fixedCommissionRate?: number | null } | null | undefined,
+  revenue: number,
+): CommissionQuote {
+  const fixedRate = fixedCommissionRateOf(teacher);
+  if (fixedRate != null) {
+    return { tier: 0, rate: fixedRate, label: formatRateLabel(fixedRate), fixed: true };
+  }
+  return getTierByRevenue(revenue);
+}
+
+/** 界面上的比例文案。兼职带「兼职」前缀，避免被看成营业额档位。 */
+export function commissionRateText(quote: CommissionQuote): string {
+  return quote.fixed ? `兼职${quote.label}` : quote.label;
 }
 
 /**

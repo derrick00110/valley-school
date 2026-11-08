@@ -19,10 +19,11 @@ export const COMMISSION_TIERS = [
 ];
 
 /**
- * 根据周期营业额计算提成档位
+ * 根据周期营业额计算提成档位（全职）。
  * 营业额[1~40000] → 20%
  * 营业额[40000~50000] → 30%
  * 营业额[50000+] → 40%
+ * 兼职老师的锁定比例见 resolveTeacherCommission，不走这里。
  */
 export function getCommissionTier(revenue: number) {
   for (const tier of COMMISSION_TIERS) {
