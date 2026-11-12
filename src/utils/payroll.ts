@@ -8,7 +8,9 @@
 //
 // 某一周期、某一位老师的应发：
 //   底薪 + 课时提成 + 过半提成 − 社保（员工自付）
-// 底薪、社保取门店配置，每个考核周期计一次。
+// 全职的底薪、社保取门店配置，每个考核周期计一次。
+// 兼职（employmentType === 'parttime'）无论门店，底薪和社保都是 0。
+// 营业额仍按老师个人累计，并计入该报名所属门店的营业额合计；兼职不并入其他老师的档位。
 // 课时提成只统计已审核的正式消课，金额按「报名所属周期」的营业额档位实时重算
 // （不使用消课记录上可能过期的 commissionAmount）：
 //   round(学费 price × 档位比例 / 正式课时, 2)
@@ -25,6 +27,20 @@ export type StoreFilter = 'all' | StoreId;
 
 export function roundMoney(amount: number): number {
   return Math.round((amount + Number.EPSILON) * 100) / 100;
+}
+
+/** 全职用门店底薪和社保。兼职固定为 0，不跟车陂的 ¥2000 / ¥570.84。 */
+export function teacherBasePay(
+  teacher: { employmentType?: string | null } | null | undefined,
+  store: { baseSalary?: number; socialInsurance?: number } | null | undefined,
+): { baseSalary: number; socialInsurance: number } {
+  if (teacher?.employmentType === 'parttime') {
+    return { baseSalary: 0, socialInsurance: 0 };
+  }
+  return {
+    baseSalary: Number(store?.baseSalary) || 0,
+    socialInsurance: Number(store?.socialInsurance) || 0,
+  };
 }
 
 export function periodLabel(period: string): string {
@@ -263,8 +279,7 @@ export function buildPayrollReport(input: {
       }
       lessonCommission = roundMoney(lessonCommission);
       halfCommission = roundMoney(halfCommission);
-      const baseSalary = store.baseSalary || 0;
-      const socialInsurance = store.socialInsurance || 0;
+      const { baseSalary, socialInsurance } = teacherBasePay(teacher, store);
       const payable = roundMoney(baseSalary + lessonCommission + halfCommission - socialInsurance);
       details.push({
         teacherId: teacher.id,

@@ -5,6 +5,7 @@ import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { STORES } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, formatMoney, getCurrentPeriodInfo, resolveTeacherCommission } from '../utils/commission';
+import { teacherBasePay } from '../utils/payroll';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType } from '../types';
 import {
@@ -426,8 +427,8 @@ const daySchedules = schedules.filter(s => s.date === today);
     return s + calcLessonFee(enrollment.price, eTier.rate, enrollment.formalLessons);
   }, 0);
   const estimatedCommission = totalLessonCommission;
-  const socialInsurance = store.socialInsurance || 0;
-  const estimatedSalary = store.baseSalary + estimatedCommission - socialInsurance;
+  const { baseSalary, socialInsurance } = teacherBasePay(teacherProfile, store);
+  const estimatedSalary = baseSalary + estimatedCommission - socialInsurance;
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
     { key: 'schedule', label: '我的排课', icon: Calendar },
@@ -859,7 +860,7 @@ const daySchedules = schedules.filter(s => s.date === today);
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">底薪</span>
-                  <span className="font-medium">{formatMoney(store.baseSalary)}</span>
+                  <span className="font-medium">{formatMoney(baseSalary)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">课时提成（已审核/{periodLessons.length}节）</span>
@@ -894,7 +895,8 @@ const daySchedules = schedules.filter(s => s.date === today);
                     {tier.fixed
                       ? `兼职固定提成 ${tier.label}，不随周期营业额变化。消课记录需店长审核通过后才计入工资。`
                       : '当月营业额决定报名学生的提成锁率。消课记录需店长审核通过后才计入工资。'}
-                    {store.baseSalary > 0 && ` 含底薪${formatMoney(store.baseSalary)}${socialInsurance > 0 ? `，扣除社保${formatMoney(socialInsurance)}` : ''}。`}
+                    {baseSalary > 0 && ` 含底薪${formatMoney(baseSalary)}${socialInsurance > 0 ? `，扣除社保${formatMoney(socialInsurance)}` : ''}。`}
+                    {tier.fixed && ' 兼职无底薪、不扣社保。'}
                   </p>
                 </div>
               </div>

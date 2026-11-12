@@ -5,6 +5,7 @@ import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { STORES, getStore } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, getCurrentPeriodInfo, formatMoney, resolveTeacherCommission } from '../utils/commission';
+import { teacherBasePay } from '../utils/payroll';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment } from '../types';
 import DataBoard from '../components/DataBoard';
@@ -417,10 +418,11 @@ export default function ManagerDashboard() {
       return s + (l.commissionAmount || 0);
     }, 0);
     const totalCommission = lessonCommissions + halfCommissions;
-    const socialInsurance = store.socialInsurance || 0;
-    const totalPayable = store.baseSalary + totalCommission - socialInsurance;
-    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary: store.baseSalary, socialInsurance, totalPayable, periodRevenue: periodRev, tier: commissionRateText(tier), tierFixed: tier.fixed, storeName: store.name };
+    const { baseSalary, socialInsurance } = teacherBasePay(t, store);
+    const totalPayable = baseSalary + totalCommission - socialInsurance;
+    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary, socialInsurance, totalPayable, periodRevenue: periodRev, tier: commissionRateText(tier), tierFixed: tier.fixed, storeName: store.name };
   });
+  const visibleSalary = salaryData.filter(t => storeFilter === 'all' || t.storeId === storeFilter);
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
     { key: 'overview', label: '总览', icon: ShieldCheck },
@@ -581,7 +583,7 @@ export default function ManagerDashboard() {
                 <p>• 月营业额 50,000+ → 40% 提成</p>
                 <p className="mt-1">• 考核周期：每月15号 ~ 次月15号</p>
                 <p>• 东莞总店：无底薪、无社保</p>
-                <p>• 兼职老师：固定提成（如 40%），不随营业额分档，也不会被改写成 20% / 30%</p>
+                <p>• 兼职老师：固定提成（如 40%），不随营业额分档；底薪和社保都是 0，不跟门店底薪</p>
                 <p>• 🔄 全职提成在周期内动态浮动，突破阈值自动补差价（之前消过的课也自动升级）</p>
                 <p>• 🔒 结算日（15号）后比例锁死，之后消课不再变化</p>
               </div>
@@ -841,25 +843,25 @@ export default function ManagerDashboard() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <div className="bg-white rounded-xl p-3 border border-slate-200">
                 <div className="text-xs text-slate-500">老师人数</div>
-                <div className="text-lg font-bold text-slate-800">{salaryData.length}</div>
+                <div className="text-lg font-bold text-slate-800">{visibleSalary.length}</div>
               </div>
               <div className="bg-white rounded-xl p-3 border border-slate-200">
                 <div className="text-xs text-slate-500">总底薪</div>
-                <div className="text-lg font-bold text-slate-800">{formatMoney(salaryData.reduce((s, t) => s + t.baseSalary, 0))}</div>
+                <div className="text-lg font-bold text-slate-800">{formatMoney(visibleSalary.reduce((s, t) => s + t.baseSalary, 0))}</div>
               </div>
               <div className="bg-white rounded-xl p-3 border border-slate-200">
                 <div className="text-xs text-slate-500">总提成</div>
-                <div className="text-lg font-bold text-indigo-600">{formatMoney(salaryData.reduce((s, t) => s + t.totalCommission, 0))}</div>
+                <div className="text-lg font-bold text-indigo-600">{formatMoney(visibleSalary.reduce((s, t) => s + t.totalCommission, 0))}</div>
               </div>
               <div className="bg-rose-50 rounded-xl p-3 border border-rose-100">
                 <div className="text-xs text-rose-600">应发总额</div>
-                <div className="text-lg font-bold text-rose-700">{formatMoney(salaryData.reduce((s, t) => s + t.totalPayable, 0))}</div>
+                <div className="text-lg font-bold text-rose-700">{formatMoney(visibleSalary.reduce((s, t) => s + t.totalPayable, 0))}</div>
               </div>
             </div>
 
             {/* 老师工资明细 */}
             <div className="space-y-2">
-              {salaryData.filter(t => storeFilter === 'all' || t.storeId === storeFilter).map(t => (
+              {visibleSalary.map(t => (
                 <div key={t.id} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -915,7 +917,7 @@ export default function ManagerDashboard() {
                 value={teacherForm.employmentType}
                 onChange={e => setTeacherForm({ ...teacherForm, employmentType: e.target.value === 'parttime' ? 'parttime' : 'fulltime' })}>
                 <option value="fulltime">全职（按营业额分档）</option>
-                <option value="parttime">兼职（固定提成 40%）</option>
+                <option value="parttime">兼职（固定提成 40%，无底薪无社保）</option>
               </select>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAddTeacher(false)} className="flex-1 py-2 bg-slate-100 rounded-lg text-sm">取消</button>
