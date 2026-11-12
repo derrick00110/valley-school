@@ -84,6 +84,7 @@ export default function LoginPage() {
                       <div className="font-medium text-sm text-slate-800">{t.name}</div>
                       <div className={`text-xs mt-0.5 ${t.storeId === 'dongguan' ? 'text-indigo-500' : 'text-emerald-500'}`}>
                         {t.storeId === 'dongguan' ? '东莞总店' : '广州车陂店'}
+                        {t.employmentType === 'parttime' && ` · 兼职 ${Math.round(Number(t.fixedCommissionRate || 0) * 100)}%`}
                       </div>
                     </button>
                   ))}

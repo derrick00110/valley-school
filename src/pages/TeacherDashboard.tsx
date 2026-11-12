@@ -4,7 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { STORES } from '../config';
-import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, formatMoney, getTierByRevenue, getCurrentPeriodInfo } from '../utils/commission';
+import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, formatMoney, getCurrentPeriodInfo, resolveTeacherCommission } from '../utils/commission';
+import { teacherBasePay } from '../utils/payroll';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType } from '../types';
 import {
@@ -15,11 +16,13 @@ import {
 type Tab = 'schedule' | 'students' | 'lessons' | 'salary';
 
 export default function TeacherDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, teachers } = useAuth();
   const teacherId = user?.teacherId || '';
   const teacherName = user?.teacherName || '';
   const storeId = user?.storeId || 'dongguan';
   const store = STORES.find(s => s.id === storeId)!;
+  const teacherProfile = teachers.find(t => t.id === teacherId);
+  const commissionFor = (revenue: number) => resolveTeacherCommission(teacherProfile, revenue);
 
   const [tab, setTab] = useState<Tab>('schedule');
 
@@ -71,6 +74,10 @@ export default function TeacherDashboard() {
 
   const handleAddEnrollment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!teacherProfile) {
+      setAlertMsg('老师资料未加载，请稍后重试');
+      return;
+    }
     const price = Number(enrollForm.price);
     const formalLessons = Number(enrollForm.formalLessons);
     const giftedLessons = Number(enrollForm.giftedLessons);
@@ -81,7 +88,7 @@ export default function TeacherDashboard() {
       en.teacherId === teacherId && en.enrollmentDate >= period.start && en.enrollmentDate <= period.end
     );
     const totalRev = periodEnroll.reduce((s, e) => s + e.price, 0) + price;
-    const tier = getTierByRevenue(totalRev);
+    const tier = commissionFor(totalRev);
 
     const enrollment: Enrollment = {
       id: shortId(), studentId: enrollForm.studentId, studentName: enrollForm.studentName,
@@ -109,8 +116,9 @@ export default function TeacherDashboard() {
       } as any);
     }
     // 检查档位是否提升 → 自动补差价升级已有消课记录
-    const prevTier = getTierByRevenue(periodEnroll.reduce((s, e) => s + e.price, 0));
-    if (tier.tier > prevTier.tier) {
+    const prevTier = commissionFor(periodEnroll.reduce((s, e) => s + e.price, 0));
+    // 兼职固定比例不随营业额升级，也不能把已有报名的 commissionRate 改成档位
+    if (!tier.fixed && tier.tier > prevTier.tier) {
       // 仅升级同周期内的已审核正式课
       const samePeriodEnrollIds = enrollments
         .filter(en => en.commissionPeriod === period.period)
@@ -143,7 +151,7 @@ export default function TeacherDashboard() {
       }
     }
 
-    setAlertMsg(`${enrollForm.studentName} 报名成功！锁定${tier.label}`);
+    setAlertMsg(`${enrollForm.studentName} 报名成功！锁定${commissionRateText(tier)}`);
     setShowAddEnrollment(false);
     setEnrollForm({ studentId: '', studentName: '', course: '', price: '', formalLessons: '1', giftedLessons: '0', isUnlimited: false });
   };
@@ -199,6 +207,10 @@ const daySchedules = schedules.filter(s => s.date === today);
   // ---- 消课处理 ----
   const handleDeductLesson = async () => {
     if (!showDeduct) return;
+    if (!teacherProfile) {
+      setAlertMsg('老师资料未加载，请稍后重试');
+      return;
+    }
     const enrollment = enrollments.find(e => e.id === showDeduct.enrollmentId);
     if (!enrollment) return;
 
@@ -218,7 +230,7 @@ const daySchedules = schedules.filter(s => s.date === today);
       en.teacherId === teacherId && en.commissionPeriod === periodKey
     );
     const periodTotalRev = periodEnroll.reduce((s, e) => s + e.price, 0);
-    const periodTier = getTierByRevenue(periodTotalRev);
+    const periodTier = commissionFor(periodTotalRev);
     const lessonFee = isFormal ? calcLessonFee(enrollment.price, periodTier.rate, enrollment.formalLessons) : 0;
 
     const lessonData: LessonRecord = {
@@ -272,6 +284,10 @@ const daySchedules = schedules.filter(s => s.date === today);
   const handleCheckIn = async (scheduleId: string) => {
     const s = schedules.find(s => s.id === scheduleId);
     if (!s) return;
+    if (!teacherProfile) {
+      setAlertMsg('老师资料未加载，请稍后重试');
+      return;
+    }
     // 标记已签到
     const colRef = collection(db, `schedules_${storeId}`);
     await updateDoc(doc(colRef, scheduleId), { checkedIn: true } as any);
@@ -285,7 +301,7 @@ const daySchedules = schedules.filter(s => s.date === today);
         en.teacherId === teacherId && en.commissionPeriod === periodKey
       );
       const periodTotalRev = periodEnroll.reduce((s, e) => s + e.price, 0);
-      const periodTier = getTierByRevenue(periodTotalRev);
+      const periodTier = commissionFor(periodTotalRev);
       const lessonFee = enrollment.formalLessons > 0
         ? calcLessonFee(enrollment.price, periodTier.rate, enrollment.formalLessons) : 0;
       const lessonData: LessonRecord = {
@@ -312,6 +328,10 @@ const daySchedules = schedules.filter(s => s.date === today);
   // ---- 修复历史课时费（将 Firestore 中旧数据更新为正确档位） ----
   const fixHistoricalFees = async () => {
     if (isFixing) return;
+    if (!teacherProfile) {
+      setAlertMsg('老师资料未加载，请稍后重试');
+      return;
+    }
     setIsFixing(true);
     let fixed = 0;
     try {
@@ -322,7 +342,7 @@ const daySchedules = schedules.filter(s => s.date === today);
         const ePeriodTotal = enrollments
           .filter(e => e.commissionPeriod === enrollment.commissionPeriod && e.teacherId === teacherId)
           .reduce((s, e) => s + e.price, 0);
-        const eTier = getTierByRevenue(ePeriodTotal);
+        const eTier = commissionFor(ePeriodTotal);
         const correctFee = calcLessonFee(enrollment.price, eTier.rate, enrollment.formalLessons);
         if (Math.abs(correctFee - lesson.commissionAmount) > 0.01) {
           const colRef = collection(db, `lessons_${storeId}`);
@@ -334,14 +354,32 @@ const daySchedules = schedules.filter(s => s.date === today);
           fixed++;
         }
       }
-      // 再修复 enrollment 的 commissionRate 和 lessonsPerSession
+      const locked = commissionFor(0);
+      if (locked.fixed) {
+        const halfLessons = lessons.filter(l => l.teacherId === teacherId && l.type === 'half' && l.status !== 'rejected');
+        for (const lesson of halfLessons) {
+          const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
+          if (!enrollment) continue;
+          const correctFee = calcUnlimitedHalfCommission(enrollment.price, locked.rate);
+          if (Math.abs(correctFee - (lesson.commissionAmount || 0)) > 0.01) {
+            const colRef = collection(db, `lessons_${storeId}`);
+            await updateDoc(doc(colRef, lesson.id), {
+              commissionAmount: correctFee,
+              upgradedFrom: lesson.commissionAmount,
+              upgradedAt: Date.now(),
+            } as any);
+            fixed++;
+          }
+        }
+      }
+      // 再修复 enrollment 的 commissionRate 和 lessonsPerSession。兼职写入固定比例，不写营业额档位。
       const enCol = collection(db, `enrollments_${storeId}`);
       const teacherEnrollments = enrollments.filter(e => e.teacherId === teacherId);
       for (const en of teacherEnrollments) {
         const ePeriodTotal = enrollments
           .filter(e => e.commissionPeriod === en.commissionPeriod && e.teacherId === teacherId)
           .reduce((s, e) => s + e.price, 0);
-        const eTier = getTierByRevenue(ePeriodTotal);
+        const eTier = commissionFor(ePeriodTotal);
         const correctFeePerSession = en.formalLessons > 0 ? (en.price * eTier.rate) / en.formalLessons : 0;
         if (Math.abs(eTier.rate - en.commissionRate) > 0.001 || Math.abs(correctFeePerSession - en.lessonsPerSession) > 0.01) {
           await updateDoc(doc(enCol, en.id), {
@@ -368,24 +406,29 @@ const daySchedules = schedules.filter(s => s.date === today);
     e.teacherId === teacherId && e.enrollmentDate >= period.start && e.enrollmentDate <= period.end
   );
   const periodRevenue = periodEnrollments.reduce((s, e) => s + e.price, 0);
-  const tier = getTierByRevenue(periodRevenue);
+  const tier = commissionFor(periodRevenue);
   // 实时重新计算课时费：基于各 lesson 所属 enrollment 的考核周期营收来确定档位
   // （不依赖 Firestore 中存储的 commissionAmount，旧数据也会自动修正）
   const totalLessonCommission = periodLessons.reduce((s, l) => {
-    // 过半提成直接用记录金额（price * rate * 0.5）
-    if (l.type === 'half') return s + (l.commissionAmount || 0);
+    if (l.type === 'half') {
+      if (tier.fixed) {
+        const enrollment = enrollments.find(e => e.id === l.enrollmentId);
+        if (enrollment) return s + calcUnlimitedHalfCommission(enrollment.price, tier.rate);
+      }
+      return s + (l.commissionAmount || 0);
+    }
     if (l.type !== 'formal') return s;
     const enrollment = enrollments.find(e => e.id === l.enrollmentId);
     if (!enrollment || enrollment.formalLessons <= 0) return s;
     const ePeriodTotal = enrollments
       .filter(e => e.commissionPeriod === enrollment.commissionPeriod && e.teacherId === teacherId)
       .reduce((sum, e) => sum + e.price, 0);
-    const eTier = getTierByRevenue(ePeriodTotal);
+    const eTier = commissionFor(ePeriodTotal);
     return s + calcLessonFee(enrollment.price, eTier.rate, enrollment.formalLessons);
   }, 0);
   const estimatedCommission = totalLessonCommission;
-  const socialInsurance = store.socialInsurance || 0;
-  const estimatedSalary = store.baseSalary + estimatedCommission - socialInsurance;
+  const { baseSalary, socialInsurance } = teacherBasePay(teacherProfile, store);
+  const estimatedSalary = baseSalary + estimatedCommission - socialInsurance;
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
     { key: 'schedule', label: '我的排课', icon: Calendar },
@@ -405,6 +448,9 @@ const daySchedules = schedules.filter(s => s.date === today);
             <div className="flex items-center gap-2">
               <Music size={20} className="text-indigo-600" />
               <span className="font-bold text-sm text-slate-800">{teacherName}</span>
+              {tier.fixed && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">兼职 {tier.label}</span>
+              )}
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700'}`}>
                 <Building2 size={10} className="inline mr-0.5" />{store.name}
               </span>
@@ -651,7 +697,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                               <div key={e.id} className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded inline-block mr-1">
                                 📅 {formatDateDisplay(e.enrollmentDate)} · {e.course} · 锁定{(() => {
                                   const periodRev = enrollments.filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId).reduce((s, en) => s + en.price, 0);
-                                  return getTierByRevenue(periodRev).label;
+                                  return commissionRateText(commissionFor(periodRev));
                                 })()}
                                 {e.isUnlimited && <span className="ml-1 text-amber-500">[无限课时]</span>}
                               </div>
@@ -688,12 +734,13 @@ const daySchedules = schedules.filter(s => s.date === today);
                               return (
                                 <button onClick={async () => {
                                   if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
+                                  if (!teacherProfile) { setAlertMsg('老师资料未加载，请稍后重试'); return; }
                                   try {
-                                    // 用 enrollment 所在周期的当前档位计算过半提成
+                                    // 用 enrollment 所在周期的当前比例计算过半提成（兼职为固定比例）
                                     const ePeriodTotal = enrollments
                                       .filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId)
                                       .reduce((s, en) => s + en.price, 0);
-                                    const eTier = getTierByRevenue(ePeriodTotal);
+                                    const eTier = commissionFor(ePeriodTotal);
                                     const halfAmount = calcUnlimitedHalfCommission(e.price, eTier.rate);
                                     // 创建过半提成记录（进入消课审核流程）
                                     const halfLesson: LessonRecord = {
@@ -751,15 +798,17 @@ const daySchedules = schedules.filter(s => s.date === today);
               [...lessons].sort((a, b) => b.createdAt - a.createdAt).map(l => {
                 // 实时重算课时费（不依赖 Firestore 存储的旧数据）
                 const correctAmount = (() => {
-                  // 过半提成直接用记录金额
-                  if (l.type === 'half') return l.commissionAmount || 0;
-                  if (l.type !== 'formal') return 0;
                   const en = enrollments.find(e => e.id === l.enrollmentId);
+                  if (l.type === 'half') {
+                    if (tier.fixed && en) return calcUnlimitedHalfCommission(en.price, tier.rate);
+                    return l.commissionAmount || 0;
+                  }
+                  if (l.type !== 'formal') return 0;
                   if (!en || en.formalLessons <= 0) return 0;
                   const eTotal = enrollments
                     .filter(e => e.commissionPeriod === en.commissionPeriod && e.teacherId === teacherId)
                     .reduce((s, e) => s + e.price, 0);
-                  return calcLessonFee(en.price, getTierByRevenue(eTotal).rate, en.formalLessons);
+                  return calcLessonFee(en.price, commissionFor(eTotal).rate, en.formalLessons);
                 })();
                 return (
                 <div key={l.id} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center justify-between">
@@ -799,8 +848,9 @@ const daySchedules = schedules.filter(s => s.date === today);
                   <div className="text-lg font-bold text-slate-800">{formatMoney(periodRevenue)}</div>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <div className="text-xs text-slate-500">当前提成档位</div>
-                  <div className="text-lg font-bold text-indigo-600">{tier.label}</div>
+                  <div className="text-xs text-slate-500">{tier.fixed ? '提成比例' : '当前提成档位'}</div>
+                  <div className="text-lg font-bold text-indigo-600">{commissionRateText(tier)}</div>
+                  {tier.fixed && <div className="text-[10px] text-amber-600 mt-1">兼职固定，不随营业额变化</div>}
                 </div>
               </div>
             </div>
@@ -810,7 +860,7 @@ const daySchedules = schedules.filter(s => s.date === today);
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">底薪</span>
-                  <span className="font-medium">{formatMoney(store.baseSalary)}</span>
+                  <span className="font-medium">{formatMoney(baseSalary)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">课时提成（已审核/{periodLessons.length}节）</span>
@@ -833,7 +883,7 @@ const daySchedules = schedules.filter(s => s.date === today);
 
             <button onClick={fixHistoricalFees} disabled={isFixing}
               className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-              {isFixing ? <><Loader2 size={14} className="animate-spin" /> 修复中...</> : <>🛠️ 修复历史课时费（更新为当前档位）</>}
+              {isFixing ? <><Loader2 size={14} className="animate-spin" /> 修复中...</> : <>🛠️ {tier.fixed ? '修复历史课时费（锁定兼职固定比例）' : '修复历史课时费（更新为当前档位）'}</>}
             </button>
 
             <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
@@ -842,8 +892,11 @@ const daySchedules = schedules.filter(s => s.date === today);
                 <div>
                   <p className="text-xs font-medium text-amber-700">温馨提示</p>
                   <p className="text-xs text-amber-600 mt-1">
-                    当月营业额决定报名学生的提成锁率。消课记录需店长审核通过后才计入工资。
-                    {store.baseSalary > 0 && ` 含底薪${formatMoney(store.baseSalary)}${socialInsurance > 0 ? `，扣除社保${formatMoney(socialInsurance)}` : ''}。`}
+                    {tier.fixed
+                      ? `兼职固定提成 ${tier.label}，不随周期营业额变化。消课记录需店长审核通过后才计入工资。`
+                      : '当月营业额决定报名学生的提成锁率。消课记录需店长审核通过后才计入工资。'}
+                    {baseSalary > 0 && ` 含底薪${formatMoney(baseSalary)}${socialInsurance > 0 ? `，扣除社保${formatMoney(socialInsurance)}` : ''}。`}
+                    {tier.fixed && ' 兼职无底薪、不扣社保。'}
                   </p>
                 </div>
               </div>
@@ -916,16 +969,17 @@ const daySchedules = schedules.filter(s => s.date === today);
               </label>
               {enrollForm.price && Number(enrollForm.price) > 0 && (
                 <div className="bg-indigo-50 rounded-xl p-3 text-xs text-indigo-700">
-                  当前周期营业额+本次 → 提成档位 {(() => {
+                  {(() => {
                     const rev = enrollments.filter(en => en.teacherId === teacherId && en.enrollmentDate >= period.start && en.enrollmentDate <= period.end).reduce((s, e) => s + e.price, 0) + Number(enrollForm.price);
-                    return getTierByRevenue(rev).label;
-                  })()}
-                  {enrollForm.formalLessons && Number(enrollForm.formalLessons) > 0 && (() => {
-                    const p = Number(enrollForm.price), fl = Number(enrollForm.formalLessons);
-                    const rate = getTierByRevenue(
-                      enrollments.filter(en => en.teacherId === teacherId && en.enrollmentDate >= period.start && en.enrollmentDate <= period.end).reduce((s, e) => s + e.price, 0) + p
-                    ).rate;
-                    return <> · 每节课时费 {formatMoney((p * rate) / fl)}</>;
+                    const quote = commissionFor(rev);
+                    const p = Number(enrollForm.price);
+                    const fl = Number(enrollForm.formalLessons);
+                    return (
+                      <>
+                        {quote.fixed ? `兼职固定提成 ${quote.label}` : `当前周期营业额+本次 → 提成档位 ${quote.label}`}
+                        {fl > 0 && <> · 每节课时费 {formatMoney((p * quote.rate) / fl)}</>}
+                      </>
+                    );
                   })()}
                 </div>
               )}

@@ -4,7 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, APP_ID } from '../firebase';
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, setDoc } from 'firebase/firestore';
 import { STORES, getStore } from '../config';
-import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, getTierByRevenue, getCurrentPeriodInfo, formatMoney } from '../utils/commission';
+import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, getCurrentPeriodInfo, formatMoney, resolveTeacherCommission } from '../utils/commission';
+import { teacherBasePay } from '../utils/payroll';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment } from '../types';
 import DataBoard from '../components/DataBoard';
@@ -41,7 +42,7 @@ export default function ManagerDashboard() {
       return () => clearTimeout(t);
     }
   }, [toastMsg]);
-  const [teacherForm, setTeacherForm] = useState({ name: '', storeId: 'dongguan' as string });
+  const [teacherForm, setTeacherForm] = useState({ name: '', storeId: 'dongguan' as string, employmentType: 'fulltime' as 'fulltime' | 'parttime' });
   const [studentForm, setStudentForm] = useState({ name: '', phone: '', teacherId: '', storeId: 'dongguan' as string, note: '' });
   const [enrollmentForm, setEnrollmentForm] = useState({ studentId: '', studentName: '', course: '', courseType: 'fixed' as string, price: '', teacherId: '', storeId: 'dongguan' as string, formalLessons: '', giftedLessons: '0', isUnlimited: 'false' as string });
   const [searchTerm, setSearchTerm] = useState('');
@@ -214,10 +215,14 @@ export default function ManagerDashboard() {
     if (!teacherForm.name.trim()) return;
     try {
       const t: Teacher = { id: shortId(), name: teacherForm.name.trim(), storeId: teacherForm.storeId as any, role: 'teacher' };
+      if (teacherForm.employmentType === 'parttime') {
+        t.employmentType = 'parttime';
+        t.fixedCommissionRate = 0.4;
+      }
       await setDoc(doc(db, 'teachers', t.id), t);
       setToastMsg(`已添加老师：${t.name}`);
       setShowAddTeacher(false);
-      setTeacherForm({ name: '', storeId: 'dongguan' });
+      setTeacherForm({ name: '', storeId: 'dongguan', employmentType: 'fulltime' });
     } catch (e: any) {
       setToastMsg('添加失败: ' + (e.message || '未知错误'));
     }
@@ -255,7 +260,7 @@ export default function ManagerDashboard() {
       en.enrollmentDate >= period.start && en.enrollmentDate <= period.end
     );
     const currentPeriodRevenue = teacherEnrollments.reduce((s, e) => s + e.price, 0) + price;
-    const tier = getTierByRevenue(currentPeriodRevenue);
+    const tier = resolveTeacherCommission(teacher, currentPeriodRevenue);
 
     const enrollment: Enrollment = {
       id: shortId(),
@@ -280,7 +285,7 @@ export default function ManagerDashboard() {
 
     const colRef = collection(db, `enrollments_${enrollment.storeId}`);
     await setDoc(doc(colRef, enrollment.id), enrollment);
-    setToastMsg(`${enrollment.studentName} 报名成功！锁定档位${enrollment.commissionRate*100}%`);
+    setToastMsg(`${enrollment.studentName} 报名成功！锁定${commissionRateText(tier)}`);
 
     // 同时更新学生课时
     const stored = storeFilter === 'all' ? enrollmentForm.storeId : storeFilter;
@@ -295,9 +300,10 @@ export default function ManagerDashboard() {
     }
 
     // 检查是否需要升级该老师该周期的消课记录（补差价）
-    const currentTier = getTierByRevenue(teacherEnrollments.reduce((s, e) => s + e.price, 0) + price);
-    const prevTier = getTierByRevenue(teacherEnrollments.reduce((s, e) => s + e.price, 0));
-    if (currentTier.tier > prevTier.tier) {
+    const currentTier = resolveTeacherCommission(teacher, teacherEnrollments.reduce((s, e) => s + e.price, 0) + price);
+    const prevTier = resolveTeacherCommission(teacher, teacherEnrollments.reduce((s, e) => s + e.price, 0));
+    // 兼职固定比例不升级，也不把已有报名的 commissionRate 改写成营业额档位
+    if (!currentTier.fixed && currentTier.tier > prevTier.tier) {
       // 仅升级同周期内的已审核正式课
       const samePeriodEnrollIds = enrollments
         .filter(en => en.commissionPeriod === period.period)
@@ -393,23 +399,30 @@ export default function ManagerDashboard() {
     const store = getStore(t.storeId);
     const periodEnroll = tEnrollments.filter(e => e.enrollmentDate >= period.start && e.enrollmentDate <= period.end);
     const periodRev = periodEnroll.reduce((s, e) => s + e.price, 0);
-    const tier = getTierByRevenue(periodRev);
+    const tier = resolveTeacherCommission(t, periodRev);
     const lessonCommissions = tLessons.filter(l => l.type === 'formal').reduce((s, l) => {
-      // 实时重新计算：基于 enrollment 所属周期的营收确定档位
+      // 实时重新计算：基于 enrollment 所属周期的营收确定档位；兼职用固定比例
       const enroll = tEnrollments.find(e => e.id === l.enrollmentId);
       if (!enroll || enroll.formalLessons <= 0) return s;
       const ePeriodTotal = tEnrollments
         .filter(e => e.commissionPeriod === enroll.commissionPeriod)
         .reduce((sum, e) => sum + e.price, 0);
-      const eTier = getTierByRevenue(ePeriodTotal);
+      const eTier = resolveTeacherCommission(t, ePeriodTotal);
       return s + calcLessonFee(enroll.price, eTier.rate, enroll.formalLessons);
     }, 0);
-    const halfCommissions = tLessons.filter(l => l.type === 'half').reduce((s, l) => s + (l.commissionAmount || 0), 0);
+    const halfCommissions = tLessons.filter(l => l.type === 'half').reduce((s, l) => {
+      if (tier.fixed) {
+        const enroll = tEnrollments.find(e => e.id === l.enrollmentId);
+        if (enroll) return s + calcUnlimitedHalfCommission(enroll.price, tier.rate);
+      }
+      return s + (l.commissionAmount || 0);
+    }, 0);
     const totalCommission = lessonCommissions + halfCommissions;
-    const socialInsurance = store.socialInsurance || 0;
-    const totalPayable = store.baseSalary + totalCommission - socialInsurance;
-    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary: store.baseSalary, socialInsurance, totalPayable, periodRevenue: periodRev, tier: tier.label, storeName: store.name };
+    const { baseSalary, socialInsurance } = teacherBasePay(t, store);
+    const totalPayable = baseSalary + totalCommission - socialInsurance;
+    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary, socialInsurance, totalPayable, periodRevenue: periodRev, tier: commissionRateText(tier), tierFixed: tier.fixed, storeName: store.name };
   });
+  const visibleSalary = salaryData.filter(t => storeFilter === 'all' || t.storeId === storeFilter);
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
     { key: 'overview', label: '总览', icon: ShieldCheck },
@@ -569,8 +582,9 @@ export default function ManagerDashboard() {
                 <p>• 月营业额 40,000 ~ 50,000 → 30% 提成</p>
                 <p>• 月营业额 50,000+ → 40% 提成</p>
                 <p className="mt-1">• 考核周期：每月15号 ~ 次月15号</p>
-                <p>• 东莞总店：无底薪，按原有40%上限</p>
-                <p>• 🔄 提成比例在周期内动态浮动，突破阈值自动补差价（之前消过的课也自动升级）</p>
+                <p>• 东莞总店：无底薪、无社保</p>
+                <p>• 兼职老师：固定提成（如 40%），不随营业额分档；底薪和社保都是 0，不跟门店底薪</p>
+                <p>• 🔄 全职提成在周期内动态浮动，突破阈值自动补差价（之前消过的课也自动升级）</p>
                 <p>• 🔒 结算日（15号）后比例锁死，之后消课不再变化</p>
               </div>
             </div>
@@ -595,6 +609,11 @@ export default function ManagerDashboard() {
                     <span className={`ml-2 text-xs px-2 py-0.5 rounded ${t.storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
                       {getStore(t.storeId).name}
                     </span>
+                    {t.employmentType === 'parttime' && (
+                      <span className="ml-2 text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700">
+                        兼职 · {Math.round(Number(t.fixedCommissionRate || 0) * 100)}%
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-xs text-slate-400">
@@ -738,17 +757,22 @@ export default function ManagerDashboard() {
               })
                 .sort((a, b) => b.createdAt - a.createdAt).map(l => {
                 // 实时重算课时费（不依赖 Firestore 存储的旧数据）
+                const lessonTeacher = teachers.find(t => t.id === l.teacherId);
                 const correctAmount = (() => {
-                  // 过半提成直接用记录金额
-                  if (l.type === 'half') return l.commissionAmount || 0;
-                  if (l.type !== 'formal') return 0;
                   const en = enrollments.find(e => e.id === l.enrollmentId);
+                  if (l.type === 'half') {
+                    const quote = resolveTeacherCommission(lessonTeacher, 0);
+                    if (quote.fixed && en) return calcUnlimitedHalfCommission(en.price, quote.rate);
+                    return l.commissionAmount || 0;
+                  }
+                  if (l.type !== 'formal') return 0;
                   if (!en || en.formalLessons <= 0) return 0;
                   const eTotal = enrollments
                     .filter(e => e.commissionPeriod === en.commissionPeriod && e.teacherId === l.teacherId)
                     .reduce((s, e) => s + e.price, 0);
-                  return calcLessonFee(en.price, getTierByRevenue(eTotal).rate, en.formalLessons);
+                  return calcLessonFee(en.price, resolveTeacherCommission(lessonTeacher, eTotal).rate, en.formalLessons);
                 })();
+                const shownCommission = correctAmount > 0 ? correctAmount : (l.commissionAmount || 0);
                 return (
                 <div key={l.id} className="bg-white rounded-xl p-3 border border-slate-200 flex items-center justify-between">
                   <div>
@@ -763,8 +787,8 @@ export default function ManagerDashboard() {
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">
-                      {teachers.find(t => t.id === l.teacherId)?.name}老师 · {l.date}
-                      {l.commissionAmount > 0 && ` · 提成${formatMoney(l.commissionAmount)}`}
+                      {lessonTeacher?.name}老师 · {l.date}
+                      {shownCommission > 0 && ` · 提成${formatMoney(shownCommission)}`}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -819,25 +843,25 @@ export default function ManagerDashboard() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <div className="bg-white rounded-xl p-3 border border-slate-200">
                 <div className="text-xs text-slate-500">老师人数</div>
-                <div className="text-lg font-bold text-slate-800">{salaryData.length}</div>
+                <div className="text-lg font-bold text-slate-800">{visibleSalary.length}</div>
               </div>
               <div className="bg-white rounded-xl p-3 border border-slate-200">
                 <div className="text-xs text-slate-500">总底薪</div>
-                <div className="text-lg font-bold text-slate-800">{formatMoney(salaryData.reduce((s, t) => s + t.baseSalary, 0))}</div>
+                <div className="text-lg font-bold text-slate-800">{formatMoney(visibleSalary.reduce((s, t) => s + t.baseSalary, 0))}</div>
               </div>
               <div className="bg-white rounded-xl p-3 border border-slate-200">
                 <div className="text-xs text-slate-500">总提成</div>
-                <div className="text-lg font-bold text-indigo-600">{formatMoney(salaryData.reduce((s, t) => s + t.totalCommission, 0))}</div>
+                <div className="text-lg font-bold text-indigo-600">{formatMoney(visibleSalary.reduce((s, t) => s + t.totalCommission, 0))}</div>
               </div>
               <div className="bg-rose-50 rounded-xl p-3 border border-rose-100">
                 <div className="text-xs text-rose-600">应发总额</div>
-                <div className="text-lg font-bold text-rose-700">{formatMoney(salaryData.reduce((s, t) => s + t.totalPayable, 0))}</div>
+                <div className="text-lg font-bold text-rose-700">{formatMoney(visibleSalary.reduce((s, t) => s + t.totalPayable, 0))}</div>
               </div>
             </div>
 
             {/* 老师工资明细 */}
             <div className="space-y-2">
-              {salaryData.filter(t => storeFilter === 'all' || t.storeId === storeFilter).map(t => (
+              {visibleSalary.map(t => (
                 <div key={t.id} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -845,7 +869,7 @@ export default function ManagerDashboard() {
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${t.storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
                         {t.storeName}
                       </span>
-                      <span className="text-xs text-slate-400">周期营业额 {formatMoney(t.periodRevenue)} · 档位 {t.tier}</span>
+                      <span className="text-xs text-slate-400">周期营业额 {formatMoney(t.periodRevenue)} · {t.tierFixed ? '提成' : '档位'} {t.tier}</span>
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-bold text-indigo-700">{formatMoney(t.totalPayable)}</div>
@@ -888,6 +912,12 @@ export default function ManagerDashboard() {
               <select className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm"
                 value={teacherForm.storeId} onChange={e => setTeacherForm({ ...teacherForm, storeId: e.target.value })}>
                 {STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select aria-label="用工类型" className="w-full px-3 py-2 bg-slate-50 border rounded-lg text-sm"
+                value={teacherForm.employmentType}
+                onChange={e => setTeacherForm({ ...teacherForm, employmentType: e.target.value === 'parttime' ? 'parttime' : 'fulltime' })}>
+                <option value="fulltime">全职（按营业额分档）</option>
+                <option value="parttime">兼职（固定提成 40%，无底薪无社保）</option>
               </select>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAddTeacher(false)} className="flex-1 py-2 bg-slate-100 rounded-lg text-sm">取消</button>
@@ -989,11 +1019,12 @@ export default function ManagerDashboard() {
                       e.enrollmentDate >= period.start && e.enrollmentDate <= period.end
                     );
                     const totalRev = teacherEnroll.reduce((s, e) => s + e.price, 0) + price;
-                    const tier = getTierByRevenue(totalRev);
+                    const teacher = teachers.find(t => t.id === enrollmentForm.teacherId);
+                    const tier = resolveTeacherCommission(teacher, totalRev);
                     return (
                       <>
                         该老师本轮已有营业额 {formatMoney(totalRev - price)} + 本次 {formatMoney(price)}
-                        <br />累计 <strong>{formatMoney(totalRev)}</strong> → 锁定提成 <strong>{tier.label}</strong>
+                        <br />累计 <strong>{formatMoney(totalRev)}</strong> → {tier.fixed ? '兼职固定' : '锁定'}提成 <strong>{tier.label}</strong>
                         {enrollmentForm.formalLessons && Number(enrollmentForm.formalLessons) > 0 && (
                           <> → 每节课时费 <strong>{formatMoney((price * tier.rate) / Number(enrollmentForm.formalLessons))}</strong></>
                         )}
@@ -1046,7 +1077,7 @@ export default function ManagerDashboard() {
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>{e.isUnlimited ? '无限课时' : '固定课时'}</span>
                           {e.status === 'completed' && <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded">已结课</span>}
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5">📅 {formatDateDisplay(e.enrollmentDate)} · ¥{e.price} · 锁定{(() => { const periodRev = enrollments.filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === e.teacherId).reduce((s, en) => s + en.price, 0); return getTierByRevenue(periodRev).label; })()} · {e.formalLessons}节正式+{e.giftedLessons}节赠送 · {teachers.find(t => t.id === e.teacherId)?.name}老师</div>
+                        <div className="text-xs text-slate-400 mt-0.5">📅 {formatDateDisplay(e.enrollmentDate)} · ¥{e.price} · 锁定{(() => { const periodRev = enrollments.filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === e.teacherId).reduce((s, en) => s + en.price, 0); const teacher = teachers.find(t => t.id === e.teacherId); return commissionRateText(resolveTeacherCommission(teacher, periodRev)); })()} · {e.formalLessons}节正式+{e.giftedLessons}节赠送 · {teachers.find(t => t.id === e.teacherId)?.name}老师</div>
                         {editEnrollment === e.id ? (
                           <div className="flex flex-wrap items-center gap-1 mt-1">
                             <input className="w-16 px-1.5 py-0.5 text-xs border rounded" value={editPrice} onChange={e2=>setEditPrice(e2.target.value)} placeholder="金额" />

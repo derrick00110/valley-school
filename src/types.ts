@@ -5,6 +5,7 @@ export type UserRole = 'teacher' | 'manager';
 export type LessonType = 'formal' | 'gifted' | 'half'; // half = 无限课时过半提成
 export type LessonStatus = 'pending' | 'approved' | 'rejected';
 export type CourseType = 'fixed' | 'unlimited'; // 固定课时 / 无限课时(钢琴)
+export type EmploymentType = 'fulltime' | 'parttime';
 
 export interface Store {
   id: StoreId;
@@ -20,6 +21,10 @@ export interface Teacher {
   name: string;
   storeId: StoreId;
   role: 'teacher';
+  /** 缺省视为全职。兼职不走营业额分档。 */
+  employmentType?: EmploymentType;
+  /** 兼职锁定提成，如 0.4。仅 employmentType 为 parttime 时生效。 */
+  fixedCommissionRate?: number;
 }
 
 export interface Student {
@@ -46,7 +51,7 @@ export interface Enrollment {
   storeId: StoreId;
   enrollmentDate: string;   // YYYY-MM-DD
   commissionPeriod: string; // 如 "2026-05" 表示5.15~6.15周期
-  commissionRate: number;   // 锁定比例 0.2 | 0.3 | 0.4
+  commissionRate: number;   // 报名时写入的比例。全职为当时档位；兼职为 fixedCommissionRate
   formalLessons: number;    // 该课程正式课时数
   giftedLessons: number;    // 该课程赠送课时数
   lessonsPerSession: number; // 每节课时费 = price * rate / formalLessons
