@@ -7,14 +7,16 @@ import { STORES, getStore } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, getCurrentPeriodInfo, formatMoney, resolveTeacherCommission } from '../utils/commission';
 import { teacherBasePay } from '../utils/payroll';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
-import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment } from '../types';
+import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment, LeaveRecord } from '../types';
 import DataBoard from '../components/DataBoard';
+import ManagerLeavePanel from '../components/ManagerLeavePanel';
+import { storeMatchesFilter } from '../utils/leave';
 import {
   Music, Users, BookOpen, DollarSign, LogOut, CheckCircle, XCircle, Plus, Trash2,
-  Calendar, Clock, Search, Filter, Building2, ShieldCheck, Loader2, AlertCircle, Gift, Download, BarChart3
+  Calendar, Clock, Search, Filter, Building2, ShieldCheck, Loader2, AlertCircle, Gift, Download, BarChart3, Umbrella
 } from 'lucide-react';
 
-type Tab = 'overview' | 'board' | 'teachers' | 'students' | 'schedule' | 'finance' | 'salary';
+type Tab = 'overview' | 'board' | 'teachers' | 'students' | 'schedule' | 'leave' | 'finance' | 'salary';
 
 export default function ManagerDashboard() {
   const { user, logout } = useAuth();
@@ -27,6 +29,7 @@ export default function ManagerDashboard() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [lessons, setLessons] = useState<LessonRecord[]>([]);
   const [schedules, setSchedules] = useState<ScheduleAppointment[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
 
   // Modals
   const [showAddTeacher, setShowAddTeacher] = useState(false);
@@ -77,6 +80,7 @@ export default function ManagerDashboard() {
     const allStudents = new Map<string, Student>();
     const allEnrollments = new Map<string, Enrollment>();
     const allLessons = new Map<string, LessonRecord>();
+    const allLeaves = new Map<string, LeaveRecord>();
 
     STORES.forEach(s => {
       unsubs.push(onSnapshot(col('students', s.id), snap => {
@@ -123,6 +127,21 @@ export default function ManagerDashboard() {
           setLessons(Array.from(allLessons.values()));
         } catch(e) { console.warn('lessons listener error', e); }
       }, e => console.warn('lessons listener failed', e)));
+
+      unsubs.push(onSnapshot(col('leaves', s.id), snap => {
+        try {
+          snap.docChanges().forEach(change => {
+            const d = change.doc;
+            const key = `${s.id}_${d.id}`;
+            if (change.type === 'removed') {
+              allLeaves.delete(key);
+            } else {
+              allLeaves.set(key, { id: d.id, storeId: s.id, ...d.data() } as LeaveRecord);
+            }
+          });
+          setLeaves(Array.from(allLeaves.values()));
+        } catch (e) { console.warn('leaves listener error', e); }
+      }, e => console.warn('leaves listener failed', e)));
 
       unsubs.push(onSnapshot(col('schedules', s.id), snap => {
         try {
@@ -389,7 +408,8 @@ export default function ManagerDashboard() {
     const storeRevenue = storeEnrollInPeriod.reduce((sum, e) => sum + e.price, 0);
     const pendingLessons = lessons.filter(l => l.storeId === s.id && l.status === 'pending').length;
     const pendingHalf = lessons.filter(l => l.storeId === s.id && l.type === 'half' && l.status === 'pending').length;
-    return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons, pendingHalf };
+    const pendingLeave = leaves.filter(l => l.storeId === s.id && l.kind === 'extra' && l.status === 'pending').length;
+    return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons, pendingHalf, pendingLeave };
   });
 
   // 工资计算
@@ -430,12 +450,14 @@ export default function ManagerDashboard() {
     { key: 'teachers', label: '老师管理', icon: Users },
     { key: 'students', label: '学生档案', icon: BookOpen },
     { key: 'schedule', label: '排课总览', icon: Calendar },
+    { key: 'leave', label: '休假审批', icon: Umbrella },
     { key: 'finance', label: '财务审核', icon: DollarSign },
     { key: 'salary', label: '薪资结算', icon: DollarSign },
   ];
 
   const allPending = lessons.filter(l => l.status === 'pending');
   const pendingHalfCount = lessons.filter(l => l.type === 'half' && l.status === 'pending' && (storeFilter === 'all' || l.storeId === storeFilter)).length;
+  const pendingLeaveCount = leaves.filter(l => l.kind === 'extra' && l.status === 'pending' && storeMatchesFilter(l.storeId, storeFilter)).length;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -478,6 +500,9 @@ export default function ManagerDashboard() {
                 {n.label}
                 {n.key === 'finance' && (allPending.length > 0 || pendingHalfCount > 0) && (
                   <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{allPending.length + pendingHalfCount}</span>
+                )}
+                {n.key === 'leave' && pendingLeaveCount > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] px-1.5 rounded-full">{pendingLeaveCount}</span>
                 )}
               </button>
             ))}
@@ -524,6 +549,12 @@ export default function ManagerDashboard() {
                     <div className="mt-3 bg-rose-50 rounded-xl p-2 flex items-center justify-between">
                       <span className="text-xs text-rose-700">待审核过半申请 <strong>{s.pendingHalf}</strong> 条</span>
                       <button onClick={() => setTab('finance')} className="text-xs text-rose-700 underline">去审核</button>
+                    </div>
+                  )}
+                  {s.pendingLeave > 0 && (
+                    <div className="mt-3 bg-emerald-50 rounded-xl p-2 flex items-center justify-between">
+                      <span className="text-xs text-emerald-700">待审批休假 <strong>{s.pendingLeave}</strong> 条</span>
+                      <button onClick={() => setTab('leave')} className="text-xs text-emerald-700 underline">去审批</button>
                     </div>
                   )}
                 </div>
@@ -723,6 +754,15 @@ export default function ManagerDashboard() {
             </div>
           </div>
         )}
+
+        {tab === 'leave' ? (
+          <ManagerLeavePanel
+            teachers={teachers}
+            leaves={leaves}
+            storeFilter={storeFilter}
+            onNotify={setToastMsg}
+          />
+        ) : null}
 
         {/* ========== 财务审核 ========== */}
         {tab === 'finance' && (
