@@ -123,3 +123,26 @@ export interface PeriodRevenue {
   tier: number;
   tierRate: number;
 }
+
+/** 自主休假立即生效；额外休假（节假日等）需店长审批。不参与工资计算。 */
+export type LeaveKind = 'self' | 'extra';
+export type LeaveStatus = 'active' | 'pending' | 'approved' | 'rejected';
+
+export interface LeaveRecord {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  storeId: StoreId;
+  kind: LeaveKind;
+  /** 自主休假为当天；额外申请为起始日。YYYY-MM-DD */
+  date: string;
+  /** 额外申请的结束日。单日申请与 date 相同。 */
+  endDate?: string;
+  /** 自然月 YYYY-MM，用于每月 4 天额度。 */
+  month: string;
+  reason?: string;
+  status: LeaveStatus;
+  createdAt: number;
+  reviewedAt?: number;
+  reviewedBy?: string;
+}
