@@ -6,6 +6,7 @@ import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, setDoc } fro
 import { STORES, getStore } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, getCurrentPeriodInfo, formatMoney, resolveTeacherCommission } from '../utils/commission';
 import { teacherBasePay } from '../utils/payroll';
+import { countedStageLessonIds, lessonKindClass, lessonKindLabel, unlimitedPhase } from '../utils/unlimitedStage';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Teacher, Student, Enrollment, LessonRecord, ScheduleAppointment, LeaveRecord } from '../types';
 import DataBoard from '../components/DataBoard';
@@ -41,7 +42,7 @@ export default function ManagerDashboard() {
   const [toastMsg, setToastMsg] = useState('');
   useEffect(() => {
     if (toastMsg) {
-      const t = setTimeout(() => setToastMsg(''), 2500);
+      const t = setTimeout(() => setToastMsg(''), 8000);
       return () => clearTimeout(t);
     }
   }, [toastMsg]);
@@ -177,19 +178,37 @@ export default function ManagerDashboard() {
     if (!s) { setToastMsg('门店信息错误'); return; }
     try {
       const colRef = collection(db, `lessons_${s.id}`);
-      await updateDoc(doc(colRef, lessonId), { status: 'approved', approvedBy: 'manager', approvedAt: Date.now() } as any);
+      const isStage = lesson.type === 'half' || lesson.type === 'close';
+      await updateDoc(doc(colRef, lessonId), {
+        status: 'approved',
+        approvedBy: 'manager',
+        approvedAt: Date.now(),
+        // 新的过半/结课记在审核当天所在周期。已经通过的旧记录不会再走这里。
+        ...(isStage ? { date: formatDate(new Date()) } : {}),
+      } as any);
       if (lesson.type === 'half') {
-        // 过半提成通过：确认过半 + 标记课程已结课
+        // 过半只确认里程碑，课程继续。
         const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
         if (enrollment) {
           const enCol = collection(db, `enrollments_${enrollment.storeId}`);
           await updateDoc(doc(enCol, enrollment.id), {
             unlimitedHalfApproved: true,
-            status: 'completed',
             halfRequested: false,
           } as any);
         }
-        setToastMsg(`${lesson.studentName} 过半提成通过，课程已结课！`);
+        setToastMsg(`${lesson.studentName} 过半提成已通过，已标记课时过半`);
+        return;
+      }
+      if (lesson.type === 'close') {
+        const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
+        if (enrollment) {
+          const enCol = collection(db, `enrollments_${enrollment.storeId}`);
+          await updateDoc(doc(enCol, enrollment.id), {
+            status: 'completed',
+            closeRequested: false,
+          } as any);
+        }
+        setToastMsg(`${lesson.studentName} 结课提成已通过，课程已结课`);
         return;
       }
       // 正常消课：扣学生课时
@@ -214,14 +233,17 @@ export default function ManagerDashboard() {
     try {
       const colRef = collection(db, `lessons_${s.id}`);
       await updateDoc(doc(colRef, lessonId), { status: 'rejected', approvedBy: 'manager', approvedAt: Date.now() } as any);
-      if (lesson.type === 'half') {
-        // 过半提成被拒：重置 enrollment，允许老师重新提交
+      if (lesson.type === 'half' || lesson.type === 'close') {
+        // 拒绝后允许老师重新提交这一段，不改报名状态。
         const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
         if (enrollment) {
           const enCol = collection(db, `enrollments_${enrollment.storeId}`);
-          await updateDoc(doc(enCol, enrollment.id), { halfRequested: false } as any);
+          const patch = lesson.type === 'half' ? { halfRequested: false } : { closeRequested: false };
+          await updateDoc(doc(enCol, enrollment.id), patch as any);
         }
-        setToastMsg(`已拒绝 ${lesson.studentName} 的过半提成申请`);
+        setToastMsg(lesson.type === 'half'
+          ? `已拒绝 ${lesson.studentName} 的过半提成申请`
+          : `已拒绝 ${lesson.studentName} 的结课申请`);
         return;
       }
       setToastMsg(`已拒绝 ${lesson.studentName} 的消课记录`);
@@ -408,11 +430,14 @@ export default function ManagerDashboard() {
     const storeRevenue = storeEnrollInPeriod.reduce((sum, e) => sum + e.price, 0);
     const pendingLessons = lessons.filter(l => l.storeId === s.id && l.status === 'pending').length;
     const pendingHalf = lessons.filter(l => l.storeId === s.id && l.type === 'half' && l.status === 'pending').length;
+    const pendingClose = lessons.filter(l => l.storeId === s.id && l.type === 'close' && l.status === 'pending').length;
     const pendingLeave = leaves.filter(l => l.storeId === s.id && l.kind === 'extra' && l.status === 'pending').length;
-    return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons, pendingHalf, pendingLeave };
+    return { ...s, students: storeStudents.length, enrollments: storeEnroll.length, revenue: storeRevenue, pendingLessons, pendingHalf, pendingClose, pendingLeave };
   });
 
   // 工资计算
+  const countedHalfIds = countedStageLessonIds(lessons, 'half');
+  const countedCloseIds = countedStageLessonIds(lessons, 'close');
   const salaryData = teachers.map(t => {
     const tEnrollments = enrollments.filter(e => e.teacherId === t.id);
     const tLessons = lessons.filter(l => l.teacherId === t.id && l.status === 'approved' && (periodFilter === 'all' || (l.date >= period.start && l.date <= period.end)));
@@ -430,17 +455,19 @@ export default function ManagerDashboard() {
       const eTier = resolveTeacherCommission(t, ePeriodTotal);
       return s + calcLessonFee(enroll.price, eTier.rate, enroll.formalLessons);
     }, 0);
-    const halfCommissions = tLessons.filter(l => l.type === 'half').reduce((s, l) => {
+    const stagePay = (type: 'half' | 'close') => tLessons.filter(l => l.type === type && (type === 'half' ? countedHalfIds : countedCloseIds).has(l.id)).reduce((s, l) => {
       if (tier.fixed) {
         const enroll = tEnrollments.find(e => e.id === l.enrollmentId);
         if (enroll) return s + calcUnlimitedHalfCommission(enroll.price, tier.rate);
       }
       return s + (l.commissionAmount || 0);
     }, 0);
-    const totalCommission = lessonCommissions + halfCommissions;
+    const halfCommissions = stagePay('half');
+    const closeCommissions = stagePay('close');
+    const totalCommission = lessonCommissions + halfCommissions + closeCommissions;
     const { baseSalary, socialInsurance } = teacherBasePay(t, store);
     const totalPayable = baseSalary + totalCommission - socialInsurance;
-    return { ...t, lessonCommissions, halfCommissions, totalCommission, baseSalary, socialInsurance, totalPayable, periodRevenue: periodRev, tier: commissionRateText(tier), tierFixed: tier.fixed, storeName: store.name };
+    return { ...t, lessonCommissions, halfCommissions, closeCommissions, totalCommission, baseSalary, socialInsurance, totalPayable, periodRevenue: periodRev, tier: commissionRateText(tier), tierFixed: tier.fixed, storeName: store.name };
   });
   const visibleSalary = salaryData.filter(t => storeFilter === 'all' || t.storeId === storeFilter);
 
@@ -548,6 +575,12 @@ export default function ManagerDashboard() {
                   {s.pendingHalf > 0 && (
                     <div className="mt-3 bg-rose-50 rounded-xl p-2 flex items-center justify-between">
                       <span className="text-xs text-rose-700">待审核过半申请 <strong>{s.pendingHalf}</strong> 条</span>
+                      <button onClick={() => setTab('finance')} className="text-xs text-rose-700 underline">去审核</button>
+                    </div>
+                  )}
+                  {s.pendingClose > 0 && (
+                    <div className="mt-3 bg-rose-50 rounded-xl p-2 flex items-center justify-between">
+                      <span className="text-xs text-rose-700">待审核结课申请 <strong>{s.pendingClose}</strong> 条</span>
                       <button onClick={() => setTab('finance')} className="text-xs text-rose-700 underline">去审核</button>
                     </div>
                   )}
@@ -700,11 +733,17 @@ export default function ManagerDashboard() {
                         {(() => {
                           const enrolled = enrollments.filter(e => e.studentId === stu.id);
                           if (enrolled.length === 0) return <span className="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">未报名</span>;
-                          return enrolled.map(e => (
+                          return enrolled.map(e => {
+                            const phase = e.isUnlimited ? unlimitedPhase(e, lessons) : null;
+                            return (
                             <span key={e.id} className={`text-[10px] px-1.5 py-0.5 rounded mr-1 ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
                               {e.isUnlimited ? '♾️' : '📋'} {e.course} <span className="opacity-60">({formatDateDisplay(e.enrollmentDate)})</span>
+                              {(phase === 'half-done' || phase === 'close-pending') && <span className="ml-1 font-medium">课时过半</span>}
+                              {phase === 'closed' && <span className="ml-1 font-medium">已结课</span>}
+                              {!e.isUnlimited && e.status === 'completed' && <span className="ml-1">已结课</span>}
                             </span>
-                          ));
+                            );
+                          });
                         })()}
                       </div>
                     </div>
@@ -800,7 +839,7 @@ export default function ManagerDashboard() {
                 const lessonTeacher = teachers.find(t => t.id === l.teacherId);
                 const correctAmount = (() => {
                   const en = enrollments.find(e => e.id === l.enrollmentId);
-                  if (l.type === 'half') {
+                  if (l.type === 'half' || l.type === 'close') {
                     const quote = resolveTeacherCommission(lessonTeacher, 0);
                     if (quote.fixed && en) return calcUnlimitedHalfCommission(en.price, quote.rate);
                     return l.commissionAmount || 0;
@@ -819,8 +858,8 @@ export default function ManagerDashboard() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{l.studentName}</span>
                       <span className="text-xs text-slate-400">{l.course}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : l.type === 'half' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                        {l.type === 'formal' ? '正式' : l.type === 'half' ? '过半提成' : '赠送'}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${lessonKindClass(l.type)}`}>
+                        {lessonKindLabel(l.type)}
                       </span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.storeId === 'dongguan' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
                         {getStore(l.storeId).shortName}
@@ -916,7 +955,7 @@ export default function ManagerDashboard() {
                       <div className="text-[10px] text-slate-400">应发</div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center text-xs">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-center text-xs">
                     <div className="bg-slate-50 rounded-lg py-2">
                       <div className="text-slate-500">底薪</div>
                       <div className="font-medium">{formatMoney(t.baseSalary)}</div>
@@ -928,6 +967,10 @@ export default function ManagerDashboard() {
                     <div className="bg-slate-50 rounded-lg py-2">
                       <div className="text-slate-500">过半提成</div>
                       <div className="font-medium text-amber-600">{formatMoney(t.halfCommissions)}</div>
+                    </div>
+                    <div className="bg-slate-50 rounded-lg py-2">
+                      <div className="text-slate-500">结课提成</div>
+                      <div className="font-medium text-rose-600">{formatMoney(t.closeCommissions)}</div>
                     </div>
                     <div className="bg-rose-50 rounded-lg py-2">
                       <div className="text-rose-500">社保（自付）</div>
@@ -1115,7 +1158,9 @@ export default function ManagerDashboard() {
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium text-sm">{e.course}</span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>{e.isUnlimited ? '无限课时' : '固定课时'}</span>
-                          {e.status === 'completed' && <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded">已结课</span>}
+                          {e.isUnlimited && (unlimitedPhase(e, lessons) === 'half-done' || unlimitedPhase(e, lessons) === 'close-pending') && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">课时过半</span>}
+                          {e.isUnlimited && unlimitedPhase(e, lessons) === 'closed' && <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded">已结课</span>}
+                          {!e.isUnlimited && e.status === 'completed' && <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded">已结课</span>}
                         </div>
                         <div className="text-xs text-slate-400 mt-0.5">📅 {formatDateDisplay(e.enrollmentDate)} · ¥{e.price} · 锁定{(() => { const periodRev = enrollments.filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === e.teacherId).reduce((s, en) => s + en.price, 0); const teacher = teachers.find(t => t.id === e.teacherId); return commissionRateText(resolveTeacherCommission(teacher, periodRev)); })()} · {e.formalLessons}节正式+{e.giftedLessons}节赠送 · {teachers.find(t => t.id === e.teacherId)?.name}老师</div>
                         {editEnrollment === e.id ? (
@@ -1149,8 +1194,8 @@ export default function ManagerDashboard() {
                 {stuLessons.sort((a,b) => b.createdAt - a.createdAt).map(l => (
                   <div key={l.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-slate-50 rounded">
                     <span>{l.course} · {l.date}</span>
-                    <span className={`px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : l.type === 'half' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                      {l.type === 'formal' ? '正式' : l.type === 'half' ? '过半提成' : '赠送'}
+                    <span className={`px-1.5 py-0.5 rounded ${lessonKindClass(l.type)}`}>
+                      {lessonKindLabel(l.type)}
                     </span>
                     <span className={`${l.status === 'approved' ? 'text-green-600' : l.status === 'pending' ? 'text-amber-600' : 'text-red-600'}`}>
                       {l.status === 'approved' ? '已通过' : l.status === 'pending' ? '待审核' : '已拒绝'}
