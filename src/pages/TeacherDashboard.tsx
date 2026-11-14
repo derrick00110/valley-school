@@ -7,13 +7,15 @@ import { STORES } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, formatMoney, getCurrentPeriodInfo, resolveTeacherCommission } from '../utils/commission';
 import { teacherBasePay } from '../utils/payroll';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
-import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType } from '../types';
+import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType, LeaveRecord, StoreId } from '../types';
+import TeacherLeavePanel from '../components/TeacherLeavePanel';
+import { isConfirmedLeaveDay, leaveCollection, leaveEnabledFor } from '../utils/leave';
 import {
   Calendar, Users, BookOpen, DollarSign, LogOut, Clock, CheckCircle, XCircle,
-  Plus, Music, ChevronLeft, ChevronRight, AlertCircle, Loader2, Building2, Gift, Trash2
+  Plus, Music, ChevronLeft, ChevronRight, AlertCircle, Loader2, Building2, Gift, Trash2, Umbrella
 } from 'lucide-react';
 
-type Tab = 'schedule' | 'students' | 'lessons' | 'salary';
+type Tab = 'schedule' | 'students' | 'lessons' | 'salary' | 'leave';
 
 export default function TeacherDashboard() {
   const { user, logout, teachers } = useAuth();
@@ -31,6 +33,8 @@ export default function TeacherDashboard() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [lessons, setLessons] = useState<LessonRecord[]>([]);
   const [schedules, setSchedules] = useState<ScheduleAppointment[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
+  const showLeave = leaveEnabledFor({ id: teacherId, storeId });
 
   // Schedule state
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -184,6 +188,19 @@ export default function TeacherDashboard() {
 
     return () => { unsubStudents(); unsubEnroll(); unsubLessons(); unsubSched(); };
   }, [teacherId, storeId]);
+
+  useEffect(() => {
+    if (!showLeave || !teacherId) return;
+    const unsub = onSnapshot(collection(db, leaveCollection(storeId)), snap => {
+      const list: LeaveRecord[] = [];
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.teacherId === teacherId) list.push({ id: d.id, ...data } as LeaveRecord);
+      });
+      setLeaves(list);
+    }, err => console.warn('leaves listener failed', err));
+    return () => unsub();
+  }, [showLeave, teacherId, storeId]);
 
   // 排课日期导航
   const today = formatDate(currentDate);
@@ -436,8 +453,10 @@ const daySchedules = schedules.filter(s => s.date === today);
     { key: 'lessons', label: '消课记录', icon: BookOpen },
     { key: 'salary', label: '预估工资', icon: DollarSign },
   ];
+  if (showLeave) navItems.splice(1, 0, { key: 'leave', label: '休假', icon: Umbrella });
 
   const pendingCount = lessons.filter(l => l.status === 'pending' && l.teacherId === teacherId).length;
+  const pendingLeaveCount = leaves.filter(l => l.kind === 'extra' && l.status === 'pending').length;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -460,7 +479,7 @@ const daySchedules = schedules.filter(s => s.date === today);
             </button>
           </div>
           {/* Tab导航 */}
-          <div className="flex gap-1 -mb-px">
+          <div className="flex gap-1 -mb-px overflow-x-auto">
             {navItems.map(n => (
               <button key={n.key} onClick={() => setTab(n.key)}
                 className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors
@@ -470,6 +489,9 @@ const daySchedules = schedules.filter(s => s.date === today);
                 {n.label}
                 {n.key === 'lessons' && pendingCount > 0 && (
                   <span className="bg-amber-500 text-white text-[10px] px-1.5 rounded-full">{pendingCount}</span>
+                )}
+                {n.key === 'leave' && pendingLeaveCount > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] px-1.5 rounded-full">{pendingLeaveCount}</span>
                 )}
               </button>
             ))}
@@ -491,6 +513,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                   const isToday = d === today;
                   const dayNum = new Date(d).getDate();
                   const dayName = ['日', '一', '二', '三', '四', '五', '六'][new Date(d).getDay()];
+                  const onLeave = showLeave && isConfirmedLeaveDay(leaves, teacherId, d);
                   return (
                     <button key={d} onClick={() => setCurrentDate(new Date(d))}
                       className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
@@ -498,6 +521,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                     >
                       <div>{dayName}</div>
                       <div className="text-sm font-bold">{dayNum}</div>
+                      {onLeave ? <div className={`text-[9px] leading-none ${isToday ? 'text-emerald-200' : 'text-emerald-600'}`}>休</div> : null}
                     </button>
                   );
                 })}
@@ -506,6 +530,12 @@ const daySchedules = schedules.filter(s => s.date === today);
                 <ChevronRight size={18} />
               </button>
             </div>
+
+            {showLeave && isConfirmedLeaveDay(leaves, teacherId, today) ? (
+              <div className="mb-3 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
+                这一天已标记为休假
+              </div>
+            ) : null}
 
             {/* 添加排课按钮 */}
             <button onClick={() => setShowAddSchedule(true)}
@@ -649,6 +679,16 @@ const daySchedules = schedules.filter(s => s.date === today);
             )}
           </div>
         )}
+
+        {tab === 'leave' && showLeave ? (
+          <TeacherLeavePanel
+            teacherId={teacherId}
+            teacherName={teacherName}
+            storeId={storeId as StoreId}
+            leaves={leaves}
+            onNotify={setAlertMsg}
+          />
+        ) : null}
 
         {/* ========== 学生 Tab ========== */}
         {tab === 'students' && (
