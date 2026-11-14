@@ -7,7 +7,7 @@
 // 与 getCurrentPeriod / getPeriodForDate、报名记录上的 commissionPeriod 一致。
 //
 // 某一周期、某一位老师的应发：
-//   底薪 + 课时提成 + 过半提成 − 社保（员工自付）
+//   底薪 + 课时提成 + 过半提成 + 结课提成 − 社保（员工自付）
 // 全职的底薪、社保取门店配置，每个考核周期计一次。
 // 兼职（employmentType === 'parttime'）无论门店，底薪和社保都是 0。
 // 营业额仍按老师个人累计，并计入该报名所属门店的营业额合计；兼职不并入其他老师的档位。
@@ -17,11 +17,15 @@
 // 档位：营业额 [0, 40000) → 20%，[40000, 50000) → 30%，[50000, ∞) → 40%。
 // 兼职老师若 employmentType 为 parttime 且 fixedCommissionRate 有效，则锁定该比例，
 // 不随周期营业额改档；过半提成同样按该比例重算。
-// 全职的过半提成仍用已审核记录上的金额（与老师端一致）。赠送课、待审核、已拒绝不计。
+// 全职的过半提成仍用已审核记录上的金额（与老师端一致），不按现在的档位重算。
+// 结课提成用同一套金额规则，单独汇总，不并进过半。同一报名的过半、结课各自只计最早的一条已通过记录。
+// 计入哪一个周期仍看记录上的 date。已有过半记录的 date 不会被改写。
+// 赠送课、待审核、已拒绝不计。
 
 import type { Enrollment, LessonRecord, StoreId, Teacher } from '../types';
 import { STORES, getPeriodForDate, getStore } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, fixedCommissionRateOf, getCurrentPeriodInfo, resolveTeacherCommission } from './commission';
+import { countedStageLessonIds } from './unlimitedStage';
 
 export type StoreFilter = 'all' | StoreId;
 
@@ -126,6 +130,7 @@ export interface TeacherPeriodRow {
   formalLessons: number;
   lessonCommission: number;
   halfCommission: number;
+  closeCommission: number;
   baseSalary: number;
   socialInsurance: number;
   payable: number;
@@ -137,6 +142,7 @@ export interface PeriodSummary {
   revenue: number;
   lessonCommission: number;
   halfCommission: number;
+  closeCommission: number;
   baseSalary: number;
   socialInsurance: number;
   payable: number;
@@ -151,6 +157,7 @@ export interface TeacherTotal {
   revenue: number;
   lessonCommission: number;
   halfCommission: number;
+  closeCommission: number;
   baseSalary: number;
   socialInsurance: number;
   payable: number;
@@ -164,6 +171,7 @@ export interface PayrollReport {
   totalPayable: number;
   totalLesson: number;
   totalHalf: number;
+  totalClose: number;
   totalBase: number;
   totalInsurance: number;
   /** 已审核正式课找不到报名或正式课时为 0，无法按公式计薪 */
@@ -177,22 +185,28 @@ function lessonPay(
   enrollmentById: Map<string, Enrollment>,
   revenueByTeacherPeriod: Map<string, number>,
   teacherById: Map<string, Teacher>,
-): { lesson: number; half: number; formal: number; skipped: boolean } {
+): { lesson: number; half: number; close: number; formal: number; skipped: boolean } {
   const teacher = teacherById.get(lesson.teacherId);
   const enrollment = enrollmentById.get(lesson.enrollmentId);
-  if (lesson.type === 'half') {
+  if (lesson.type === 'half' || lesson.type === 'close') {
     const fixedRate = fixedCommissionRateOf(teacher);
-    const half = fixedRate != null && enrollment
+    const amount = fixedRate != null && enrollment
       ? calcUnlimitedHalfCommission(Number(enrollment.price) || 0, fixedRate)
       : Number(lesson.commissionAmount) || 0;
-    return { lesson: 0, half, formal: 0, skipped: false };
+    return {
+      lesson: 0,
+      half: lesson.type === 'half' ? amount : 0,
+      close: lesson.type === 'close' ? amount : 0,
+      formal: 0,
+      skipped: false,
+    };
   }
   if (lesson.type !== 'formal') {
-    return { lesson: 0, half: 0, formal: 0, skipped: false };
+    return { lesson: 0, half: 0, close: 0, formal: 0, skipped: false };
   }
   const formalLessons = Number(enrollment?.formalLessons) || 0;
   if (!enrollment || formalLessons <= 0) {
-    return { lesson: 0, half: 0, formal: 1, skipped: true };
+    return { lesson: 0, half: 0, close: 0, formal: 1, skipped: true };
   }
   const period = periodOfEnrollment(enrollment);
   const revenue = period ? revenueByTeacherPeriod.get(`${lesson.teacherId}::${period}`) || 0 : 0;
@@ -200,6 +214,7 @@ function lessonPay(
   return {
     lesson: calcLessonFee(Number(enrollment.price) || 0, quote.rate, formalLessons),
     half: 0,
+    close: 0,
     formal: 1,
     skipped: false,
   };
@@ -241,6 +256,8 @@ export function buildPayrollReport(input: {
 
   const enrollmentById = new Map(enrollments.map(enrollment => [enrollment.id, enrollment]));
   const teacherById = new Map(teachers.map(teacher => [teacher.id, teacher]));
+  const countedHalfIds = countedStageLessonIds(lessons, 'half');
+  const countedCloseIds = countedStageLessonIds(lessons, 'close');
   const lessonsByTeacherPeriod = new Map<string, LessonRecord[]>();
   let orphanApprovedLessons = 0;
   for (const lesson of lessons) {
@@ -269,18 +286,23 @@ export function buildPayrollReport(input: {
       const bucket = lessonsByTeacherPeriod.get(`${teacher.id}::${period}`) || [];
       let lessonCommission = 0;
       let halfCommission = 0;
+      let closeCommission = 0;
       let formalLessons = 0;
       for (const lesson of bucket) {
+        if (lesson.type === 'half' && !countedHalfIds.has(lesson.id)) continue;
+        if (lesson.type === 'close' && !countedCloseIds.has(lesson.id)) continue;
         const pay = lessonPay(lesson, enrollmentById, revenueByTeacherPeriod, teacherById);
         lessonCommission += pay.lesson;
         halfCommission += pay.half;
+        closeCommission += pay.close;
         formalLessons += pay.formal;
         if (pay.skipped) skippedFormalLessons += 1;
       }
       lessonCommission = roundMoney(lessonCommission);
       halfCommission = roundMoney(halfCommission);
+      closeCommission = roundMoney(closeCommission);
       const { baseSalary, socialInsurance } = teacherBasePay(teacher, store);
-      const payable = roundMoney(baseSalary + lessonCommission + halfCommission - socialInsurance);
+      const payable = roundMoney(baseSalary + lessonCommission + halfCommission + closeCommission - socialInsurance);
       details.push({
         teacherId: teacher.id,
         teacherName: teacher.name,
@@ -295,6 +317,7 @@ export function buildPayrollReport(input: {
         formalLessons,
         lessonCommission,
         halfCommission,
+        closeCommission,
         baseSalary,
         socialInsurance,
         payable,
@@ -311,6 +334,7 @@ export function buildPayrollReport(input: {
       revenue,
       lessonCommission: roundMoney(rows.reduce((sum, row) => sum + row.lessonCommission, 0)),
       halfCommission: roundMoney(rows.reduce((sum, row) => sum + row.halfCommission, 0)),
+      closeCommission: roundMoney(rows.reduce((sum, row) => sum + row.closeCommission, 0)),
       baseSalary: roundMoney(rows.reduce((sum, row) => sum + row.baseSalary, 0)),
       socialInsurance: roundMoney(rows.reduce((sum, row) => sum + row.socialInsurance, 0)),
       payable: roundMoney(rows.reduce((sum, row) => sum + row.payable, 0)),
@@ -329,6 +353,7 @@ export function buildPayrollReport(input: {
       revenue: roundMoney(rows.reduce((sum, row) => sum + row.revenue, 0)),
       lessonCommission: roundMoney(rows.reduce((sum, row) => sum + row.lessonCommission, 0)),
       halfCommission: roundMoney(rows.reduce((sum, row) => sum + row.halfCommission, 0)),
+      closeCommission: roundMoney(rows.reduce((sum, row) => sum + row.closeCommission, 0)),
       baseSalary: roundMoney(rows.reduce((sum, row) => sum + row.baseSalary, 0)),
       socialInsurance: roundMoney(rows.reduce((sum, row) => sum + row.socialInsurance, 0)),
       payable: roundMoney(rows.reduce((sum, row) => sum + row.payable, 0)),
@@ -345,6 +370,7 @@ export function buildPayrollReport(input: {
     totalPayable: total(row => row.payable),
     totalLesson: total(row => row.lessonCommission),
     totalHalf: total(row => row.halfCommission),
+    totalClose: total(row => row.closeCommission),
     totalBase: total(row => row.baseSalary),
     totalInsurance: total(row => row.socialInsurance),
     skippedFormalLessons,

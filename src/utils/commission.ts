@@ -88,7 +88,8 @@ export function calcLessonFee(price: number, rate: number, formalLessons: number
 }
 
 /**
- * 计算无限课时过半提成
+ * 无限课时一次结算：学费 × 比例 ÷ 2。
+ * 过半付一次，结课再付一次，两段合计为学费 × 比例。
  */
 export function calcUnlimitedHalfCommission(price: number, rate: number): number {
   return Math.round(price * rate * 50) / 100;

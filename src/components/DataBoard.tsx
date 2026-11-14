@@ -99,7 +99,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
   );
 
   const visibleDetails = report.details
-    .filter(row => showAllDetails || row.revenue !== 0 || row.lessonCommission !== 0 || row.halfCommission !== 0 || row.baseSalary !== 0 || row.socialInsurance !== 0)
+    .filter(row => showAllDetails || row.revenue !== 0 || row.lessonCommission !== 0 || row.halfCommission !== 0 || row.closeCommission !== 0 || row.baseSalary !== 0 || row.socialInsurance !== 0)
     .sort((a, b) => a.period.localeCompare(b.period) || a.teacherName.localeCompare(b.teacherName, 'zh-CN'));
 
   return (
@@ -151,7 +151,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <SummaryCard label="区间营业额" value={formatMoney(report.totalRevenue)} hint="报名学费合计" tone="slate" />
         <SummaryCard label="老师工资合计" value={formatMoney(report.totalPayable)} hint="底薪 + 提成 − 社保" tone="rose" />
-        <SummaryCard label="课时提成" value={formatMoney(report.totalLesson)} hint={`过半提成 ${formatMoney(report.totalHalf)}`} tone="indigo" />
+        <SummaryCard label="课时提成" value={formatMoney(report.totalLesson)} hint={`过半 ${formatMoney(report.totalHalf)} · 结课 ${formatMoney(report.totalClose)}`} tone="indigo" />
         <SummaryCard label="底薪 / 社保" value={formatMoney(report.totalBase)} hint={`社保自付 ${formatMoney(report.totalInsurance)}`} tone="slate" />
       </div>
 
@@ -185,6 +185,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
                 <Th align="right">营业额</Th>
                 <Th align="right">课时提成</Th>
                 <Th align="right">过半提成</Th>
+                <Th align="right">结课提成</Th>
                 <Th align="right">底薪</Th>
                 <Th align="right">社保</Th>
                 <Th align="right">老师工资</Th>
@@ -197,6 +198,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.revenue)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-indigo-700">{formatMoney(row.lessonCommission)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-amber-700">{formatMoney(row.halfCommission)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-rose-700">{formatMoney(row.closeCommission)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.baseSalary)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-rose-600">{row.socialInsurance ? `-${formatMoney(row.socialInsurance)}` : formatMoney(0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800">{formatMoney(row.payable)}</td>
@@ -209,6 +211,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
                 <td className="px-3 py-2 text-right tabular-nums">{formatMoney(report.totalRevenue)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-indigo-700">{formatMoney(report.totalLesson)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-amber-700">{formatMoney(report.totalHalf)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-rose-700">{formatMoney(report.totalClose)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatMoney(report.totalBase)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-rose-600">{report.totalInsurance ? `-${formatMoney(report.totalInsurance)}` : formatMoney(0)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatMoney(report.totalPayable)}</td>
@@ -232,6 +235,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
                 <Th align="right">营业额</Th>
                 <Th align="right">课时提成</Th>
                 <Th align="right">过半提成</Th>
+                <Th align="right">结课提成</Th>
                 <Th align="right">底薪</Th>
                 <Th align="right">社保</Th>
                 <Th align="right">工资合计</Th>
@@ -239,7 +243,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
             </thead>
             <tbody>
               {report.teachers.length === 0 ? (
-                <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-400">该门店还没有老师</td></tr>
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">该门店还没有老师</td></tr>
               ) : report.teachers.map(row => (
                 <tr key={row.teacherId} className="border-t border-slate-100">
                   <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">
@@ -252,6 +256,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.revenue)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-indigo-700">{formatMoney(row.lessonCommission)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-amber-700">{formatMoney(row.halfCommission)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-rose-700">{formatMoney(row.closeCommission)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.baseSalary)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-rose-600">{row.socialInsurance ? `-${formatMoney(row.socialInsurance)}` : formatMoney(0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatMoney(row.payable)}</td>
@@ -287,6 +292,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
                 <Th>档位</Th>
                 <Th align="right">课时提成</Th>
                 <Th align="right">过半提成</Th>
+                <Th align="right">结课提成</Th>
                 <Th align="right">底薪</Th>
                 <Th align="right">社保</Th>
                 <Th align="right">工资</Th>
@@ -294,7 +300,7 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
             </thead>
             <tbody>
               {visibleDetails.length === 0 ? (
-                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">该区间没有营业额或工资</td></tr>
+                <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-400">该区间没有营业额或工资</td></tr>
               ) : visibleDetails.map(row => (
                 <DetailRow key={`${row.teacherId}-${row.period}`} row={row} />
               ))}
@@ -305,8 +311,8 @@ export default function DataBoard({ teachers, enrollments, lessons, storeFilter,
 
       <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs text-amber-800 space-y-1.5">
         <p className="font-medium">工资口径（与老师端预估工资一致）</p>
-        <p>应发 = 底薪 + 已审核正式课课时提成 + 已审核过半提成 − 社保。全职车陂店每个周期底薪 ¥2,000.00、社保自付 ¥570.84；东莞总店无底薪、无社保。兼职老师无论门店，底薪和社保都是 0。</p>
-        <p>课时提成按老师个人营业额分档，不跟同店其他老师合并。不满 4 万为 20%，4 万至不满 5 万为 30%，5 万及以上为 40%。兼职锁定个人固定比例（如 40%）。报名仍计入所在门店的营业额合计。15 日当天起算新周期，每条消课只计入上课日期所在的那一个周期。</p>
+        <p>应发 = 底薪 + 已审核正式课课时提成 + 已审核过半提成 + 已审核结课提成 − 社保。全职车陂店每个周期底薪 ¥2,000.00、社保自付 ¥570.84；东莞总店无底薪、无社保。兼职老师无论门店，底薪和社保都是 0。</p>
+        <p>课时提成按老师个人营业额分档，不跟同店其他老师合并。不满 4 万为 20%，4 万至不满 5 万为 30%，5 万及以上为 40%。兼职锁定个人固定比例（如 40%）。报名仍计入所在门店的营业额合计。15 日当天起算新周期。正式课计入上课日期所在周期；过半和结课计入该条记录日期所在周期，同一报名每一段只计一次。</p>
         <p>待审核、已拒绝和赠送课不计入。看板只读取数据，不会审核、改价或结算。</p>
         {report.skippedFormalLessons > 0 && (
           <p>有 {report.skippedFormalLessons} 条已审核正式课缺少报名记录或正式课时为 0，未计入工资。</p>
@@ -352,6 +358,7 @@ function DetailRow({ row }: { row: TeacherPeriodRow }) {
       <td className="px-3 py-2 text-slate-600">{row.tierLabel}</td>
       <td className="px-3 py-2 text-right tabular-nums text-indigo-700">{formatMoney(row.lessonCommission)}</td>
       <td className="px-3 py-2 text-right tabular-nums text-amber-700">{formatMoney(row.halfCommission)}</td>
+      <td className="px-3 py-2 text-right tabular-nums text-rose-700">{formatMoney(row.closeCommission)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{formatMoney(row.baseSalary)}</td>
       <td className="px-3 py-2 text-right tabular-nums text-rose-600">{row.socialInsurance ? `-${formatMoney(row.socialInsurance)}` : formatMoney(0)}</td>
       <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatMoney(row.payable)}</td>

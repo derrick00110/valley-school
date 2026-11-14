@@ -2,7 +2,7 @@
 
 export type StoreId = 'dongguan' | 'chebei';
 export type UserRole = 'teacher' | 'manager';
-export type LessonType = 'formal' | 'gifted' | 'half'; // half = 无限课时过半提成
+export type LessonType = 'formal' | 'gifted' | 'half' | 'close'; // half = 无限课时过半；close = 无限课时结课（后半段）
 export type LessonStatus = 'pending' | 'approved' | 'rejected';
 export type CourseType = 'fixed' | 'unlimited'; // 固定课时 / 无限课时(钢琴)
 export type EmploymentType = 'fulltime' | 'parttime';
@@ -56,7 +56,11 @@ export interface Enrollment {
   giftedLessons: number;    // 该课程赠送课时数
   lessonsPerSession: number; // 每节课时费 = price * rate / formalLessons
   isUnlimited: boolean;     // 是否无限课时
-  unlimitedHalfApproved: boolean; // 无限课时过半审核
+  unlimitedHalfApproved: boolean; // 无限课时过半已确认。过半不是结课。
+  /** 老师已提交过半，防止重复点击。审核结束后清掉。 */
+  halfRequested?: boolean;
+  /** 老师已提交结课，防止重复点击。审核结束后清掉。 */
+  closeRequested?: boolean;
   status: 'active' | 'completed';
   createdAt: number;
 }

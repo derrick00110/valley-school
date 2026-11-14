@@ -6,6 +6,7 @@ import { collection, onSnapshot, updateDoc, doc, setDoc, deleteDoc } from 'fireb
 import { STORES } from '../config';
 import { calcLessonFee, calcUnlimitedHalfCommission, calcUpgradeForLessons, commissionRateText, formatMoney, getCurrentPeriodInfo, resolveTeacherCommission } from '../utils/commission';
 import { teacherBasePay } from '../utils/payroll';
+import { canonicalStageLesson, countedStageLessonIds, lessonKindClass, lessonKindLabel, unlimitedPhase, unlimitedStageAmount } from '../utils/unlimitedStage';
 import { shortId, formatDate, formatDateDisplay } from '../utils/helpers';
 import type { Student, Enrollment, LessonRecord, ScheduleAppointment, LessonType, LeaveRecord, StoreId } from '../types';
 import TeacherLeavePanel from '../components/TeacherLeavePanel';
@@ -49,7 +50,7 @@ export default function TeacherDashboard() {
   const [alertMsg, setAlertMsg] = useState('');
   useEffect(() => {
     if (alertMsg) {
-      const t = setTimeout(() => setAlertMsg(''), 2500);
+      const t = setTimeout(() => setAlertMsg(''), 8000);
       return () => clearTimeout(t);
     }
   }, [alertMsg]);
@@ -373,7 +374,7 @@ const daySchedules = schedules.filter(s => s.date === today);
       }
       const locked = commissionFor(0);
       if (locked.fixed) {
-        const halfLessons = lessons.filter(l => l.teacherId === teacherId && l.type === 'half' && l.status !== 'rejected');
+        const halfLessons = lessons.filter(l => l.teacherId === teacherId && (l.type === 'half' || l.type === 'close') && l.status !== 'rejected');
         for (const lesson of halfLessons) {
           const enrollment = enrollments.find(e => e.id === lesson.enrollmentId);
           if (!enrollment) continue;
@@ -413,6 +414,50 @@ const daySchedules = schedules.filter(s => s.date === today);
     }
   };
 
+  const submitUnlimitedStage = async (enrollment: Enrollment, stage: 'half' | 'close') => {
+    const phase = unlimitedPhase(enrollment, lessons);
+    if (stage === 'half' && phase !== 'need-half') {
+      setAlertMsg(phase === 'half-pending' ? '过半申请审核中，请等待店长处理' : '该课程已标记课时过半，不能重复申请');
+      return;
+    }
+    if (stage === 'close' && phase !== 'half-done') {
+      setAlertMsg(phase === 'close-pending' ? '结课申请审核中，请等待店长处理' : phase === 'closed' ? '课程已结课' : '需先通过课时过半，才能申请结课');
+      return;
+    }
+    if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
+    if (!teacherProfile) { setAlertMsg('老师资料未加载，请稍后重试'); return; }
+    try {
+      const matchedHalf = canonicalStageLesson(lessons, enrollment.id, 'half');
+      const amount = unlimitedStageAmount({
+        price: enrollment.price,
+        commissionRate: enrollment.commissionRate,
+        teacher: teacherProfile,
+        stage,
+        matchedHalfAmount: matchedHalf?.commissionAmount,
+      });
+      const record: LessonRecord = {
+        id: shortId(),
+        studentId: enrollment.studentId,
+        studentName: enrollment.studentName,
+        enrollmentId: enrollment.id,
+        course: enrollment.course,
+        teacherId,
+        storeId: storeId as StoreId,
+        date: formatDate(new Date()),
+        type: stage,
+        commissionAmount: amount,
+        status: 'pending',
+        createdAt: Date.now(),
+      };
+      await setDoc(doc(collection(db, `lessons_${storeId}`), record.id), record);
+      const patch = stage === 'half' ? { halfRequested: true } : { closeRequested: true };
+      await updateDoc(doc(collection(db, `enrollments_${storeId}`), enrollment.id), patch as any);
+      setAlertMsg(`✅ 已提交「${enrollment.course}」${stage === 'half' ? '过半提成' : '结课提成'} ${formatMoney(amount)}，待店长审核`);
+    } catch (err: any) {
+      setAlertMsg(`❌ 提交失败：${err?.message || '请检查权限'}`);
+    }
+  };
+
   // 计算预估工资
   const period = getCurrentPeriodInfo();
   const periodLessons = lessons.filter(l =>
@@ -426,14 +471,21 @@ const daySchedules = schedules.filter(s => s.date === today);
   const tier = commissionFor(periodRevenue);
   // 实时重新计算课时费：基于各 lesson 所属 enrollment 的考核周期营收来确定档位
   // （不依赖 Firestore 中存储的 commissionAmount，旧数据也会自动修正）
+  const countedHalfIds = countedStageLessonIds(lessons, 'half');
+  const countedCloseIds = countedStageLessonIds(lessons, 'close');
+  const stageAmount = (l: LessonRecord) => {
+    if (tier.fixed) {
+      const enrollment = enrollments.find(e => e.id === l.enrollmentId);
+      if (enrollment) return calcUnlimitedHalfCommission(enrollment.price, tier.rate);
+    }
+    return l.commissionAmount || 0;
+  };
   const totalLessonCommission = periodLessons.reduce((s, l) => {
     if (l.type === 'half') {
-      if (tier.fixed) {
-        const enrollment = enrollments.find(e => e.id === l.enrollmentId);
-        if (enrollment) return s + calcUnlimitedHalfCommission(enrollment.price, tier.rate);
-      }
-      return s + (l.commissionAmount || 0);
+      if (!countedHalfIds.has(l.id)) return s;
+      return s + stageAmount(l);
     }
+    if (l.type === 'close') return s;
     if (l.type !== 'formal') return s;
     const enrollment = enrollments.find(e => e.id === l.enrollmentId);
     if (!enrollment || enrollment.formalLessons <= 0) return s;
@@ -443,9 +495,13 @@ const daySchedules = schedules.filter(s => s.date === today);
     const eTier = commissionFor(ePeriodTotal);
     return s + calcLessonFee(enrollment.price, eTier.rate, enrollment.formalLessons);
   }, 0);
+  const closeCommission = periodLessons.reduce((s, l) => {
+    if (l.type !== 'close' || !countedCloseIds.has(l.id)) return s;
+    return s + stageAmount(l);
+  }, 0);
   const estimatedCommission = totalLessonCommission;
   const { baseSalary, socialInsurance } = teacherBasePay(teacherProfile, store);
-  const estimatedSalary = baseSalary + estimatedCommission - socialInsurance;
+  const estimatedSalary = baseSalary + estimatedCommission + closeCommission - socialInsurance;
 
   const navItems: { key: Tab; label: string; icon: any }[] = [
     { key: 'schedule', label: '我的排课', icon: Calendar },
@@ -710,7 +766,8 @@ const daySchedules = schedules.filter(s => s.date === today);
               </div>
             ) : (
               students.filter(s => s.name.includes(studentSearch)).map(stu => {
-                const stuEnrollments = enrollments.filter(e => e.studentId === stu.id && e.status === 'active');
+                const listed = enrollments.filter(e => e.studentId === stu.id && (e.status === 'active' || e.status === 'completed'));
+                const stuEnrollments = listed.filter(e => e.status === 'active');
                 return (
                   <div key={stu.id} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
                     <div className="flex items-center justify-between">
@@ -721,27 +778,35 @@ const daySchedules = schedules.filter(s => s.date === today);
                           {stu.giftedLessons > 0 && <span>赠送剩余: <strong className="text-emerald-600">{stu.giftedLessons}</strong> 节</span>}
                         </div>
                         <div className="flex items-center gap-1 mt-1">
-                          {(() => {
-                            const enrolled = enrollments.filter(e => e.studentId === stu.id && e.status === 'active');
-                            if (enrolled.length === 0) return <span className="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">未报名</span>;
-                            return enrolled.map(e => (
+                          {listed.length === 0 ? (
+                            <span className="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">未报名</span>
+                          ) : listed.map(e => {
+                            const phase = e.isUnlimited ? unlimitedPhase(e, lessons) : null;
+                            return (
                               <span key={e.id} className={`text-[10px] px-1.5 py-0.5 rounded mr-1 ${e.isUnlimited ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
                                 {e.isUnlimited ? '♾️' : '📋'} {e.course} <span className="opacity-60">({formatDateDisplay(e.enrollmentDate)})</span>
+                                {(phase === 'half-done' || phase === 'close-pending') && <span className="ml-1 font-medium text-emerald-700">课时过半</span>}
+                                {(phase === 'closed' || (!e.isUnlimited && e.status === 'completed')) && <span className="ml-1 font-medium">已结课</span>}
                               </span>
-                            ));
-                          })()}
+                            );
+                          })}
                         </div>
-                        {stuEnrollments.length > 0 && (
+                        {listed.length > 0 && (
                           <div className="mt-2 space-y-1">
-                            {stuEnrollments.map(e => (
+                            {listed.map(e => {
+                              const phase = e.isUnlimited ? unlimitedPhase(e, lessons) : null;
+                              return (
                               <div key={e.id} className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded inline-block mr-1">
                                 📅 {formatDateDisplay(e.enrollmentDate)} · {e.course} · 锁定{(() => {
                                   const periodRev = enrollments.filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId).reduce((s, en) => s + en.price, 0);
                                   return commissionRateText(commissionFor(periodRev));
                                 })()}
                                 {e.isUnlimited && <span className="ml-1 text-amber-500">[无限课时]</span>}
+                                {(phase === 'half-done' || phase === 'close-pending') && <span className="ml-1 text-emerald-700 font-medium">课时过半</span>}
+                                {(phase === 'closed' || (!e.isUnlimited && e.status === 'completed')) && <span className="ml-1 font-medium text-slate-600">已结课</span>}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -762,49 +827,35 @@ const daySchedules = schedules.filter(s => s.date === today);
                               </button>
                             )}
                             {e.isUnlimited && (() => {
-                              // 以实际提成记录为准判断状态（不受旧 unlimitedHalfApproved 脏数据影响）
-                              const halfLesson = lessons.find(l => l.enrollmentId === e.id && l.type === 'half');
-                              if (halfLesson && halfLesson.status === 'pending') {
+                              const phase = unlimitedPhase(e, lessons);
+                              if (phase === 'half-pending') {
                                 return <span className="text-[10px] bg-amber-100 text-amber-600 px-2 py-1 rounded">⏳ 过半申请审核中</span>;
                               }
-                              if (halfLesson && halfLesson.status === 'approved') {
-                                return <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded">🎓 已结课</span>;
+                              if (phase === 'close-pending') {
+                                return (
+                                  <>
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded">课时过半</span>
+                                    <span className="text-[10px] bg-amber-100 text-amber-600 px-2 py-1 rounded">⏳ 结课申请审核中</span>
+                                  </>
+                                );
                               }
-                              // 无有效提成记录（含旧数据只设了 unlimitedHalfApproved 未生成记录）→ 可标记
+                              if (phase === 'closed') {
+                                return <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-1 rounded">已结课</span>;
+                              }
+                              if (phase === 'half-done') {
+                                return (
+                                  <>
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded">课时过半</span>
+                                    <button onClick={() => submitUnlimitedStage(e, 'close')}
+                                      className="text-xs bg-rose-50 text-rose-600 px-2 py-1 rounded hover:bg-rose-100">
+                                      申请结课
+                                    </button>
+                                  </>
+                                );
+                              }
                               return (
-                                <button onClick={async () => {
-                                  if (!db) { setAlertMsg('数据服务未就绪，请刷新重试'); return; }
-                                  if (!teacherProfile) { setAlertMsg('老师资料未加载，请稍后重试'); return; }
-                                  try {
-                                    // 用 enrollment 所在周期的当前比例计算过半提成（兼职为固定比例）
-                                    const ePeriodTotal = enrollments
-                                      .filter(en => en.commissionPeriod === e.commissionPeriod && en.teacherId === teacherId)
-                                      .reduce((s, en) => s + en.price, 0);
-                                    const eTier = commissionFor(ePeriodTotal);
-                                    const halfAmount = calcUnlimitedHalfCommission(e.price, eTier.rate);
-                                    // 创建过半提成记录（进入消课审核流程）
-                                    const halfLesson: LessonRecord = {
-                                      id: shortId(),
-                                      studentId: e.studentId,
-                                      studentName: e.studentName,
-                                      enrollmentId: e.id,
-                                      course: e.course,
-                                      teacherId, storeId,
-                                      date: formatDate(new Date()),
-                                      type: 'half',
-                                      commissionAmount: halfAmount,
-                                      status: 'pending',
-                                      createdAt: Date.now(),
-                                    };
-                                    await setDoc(doc(collection(db, `lessons_${storeId}`), halfLesson.id), halfLesson);
-                                    // 标记申请中，防止重复提交
-                                    const colRef = collection(db, `enrollments_${storeId}`);
-                                    await updateDoc(doc(colRef, e.id), { halfRequested: true } as any);
-                                    setAlertMsg(`✅ 已提交「${e.course}」过半提成 ${formatMoney(halfAmount)}，待店长审核`);
-                                  } catch (err: any) {
-                                    setAlertMsg(`❌ 提交失败：${err?.message || '请检查权限'}`);
-                                  }
-                                }} className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded hover:bg-amber-100">
+                                <button onClick={() => submitUnlimitedStage(e, 'half')}
+                                  className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded hover:bg-amber-100">
                                   标记课程过半
                                 </button>
                               );
@@ -839,7 +890,7 @@ const daySchedules = schedules.filter(s => s.date === today);
                 // 实时重算课时费（不依赖 Firestore 存储的旧数据）
                 const correctAmount = (() => {
                   const en = enrollments.find(e => e.id === l.enrollmentId);
-                  if (l.type === 'half') {
+                  if (l.type === 'half' || l.type === 'close') {
                     if (tier.fixed && en) return calcUnlimitedHalfCommission(en.price, tier.rate);
                     return l.commissionAmount || 0;
                   }
@@ -856,8 +907,8 @@ const daySchedules = schedules.filter(s => s.date === today);
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{l.studentName}</span>
                       <span className="text-xs text-slate-400">{l.course}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${l.type === 'formal' ? 'bg-indigo-50 text-indigo-600' : l.type === 'half' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                        {l.type === 'formal' ? '正式' : l.type === 'half' ? '过半提成' : '赠送'}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${lessonKindClass(l.type)}`}>
+                        {lessonKindLabel(l.type)}
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">{formatDateDisplay(l.date)}</div>
@@ -906,6 +957,12 @@ const daySchedules = schedules.filter(s => s.date === today);
                   <span className="text-slate-500">课时提成（已审核/{periodLessons.length}节）</span>
                   <span className="font-medium text-indigo-600">{formatMoney(estimatedCommission)}</span>
                 </div>
+                {closeCommission > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500">结课提成</span>
+                    <span className="font-medium text-rose-600">{formatMoney(closeCommission)}</span>
+                  </div>
+                )}
                 {socialInsurance > 0 && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-500">社保（员工自付）</span>
